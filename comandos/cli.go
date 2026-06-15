@@ -9,6 +9,8 @@ import (
 	"MIA_P1_202243063/utils" // uso utils para parsear y validar comandos
 )
 
+var consoleReader = bufio.NewReader(os.Stdin) // aqui dejo un solo lector para comandos y confirmaciones
+
 func RunCLI() { // esta funcion arranca la consola principal del proyecto
 	fmt.Println("MIA Proyecto 1 - CLI")                    // mensaje inicial del programa
 	fmt.Println("Escribe un comando o 'exit' para salir.") // aviso para saber como cerrar la consola
@@ -17,17 +19,15 @@ func RunCLI() { // esta funcion arranca la consola principal del proyecto
 }
 
 func runInteractive() { // esta funcion mantiene la consola activa
-	scanner := bufio.NewScanner(os.Stdin) // scanner lee lo que escribo en la terminal
-
 	for {
 		fmt.Print("MIA> ") // prompt para saber que el programa esta esperando un comando
 
-		if !scanner.Scan() {
+		line, err := consoleReader.ReadString('\n') // leo una linea completa desde la consola
+		if err != nil {
 			fmt.Println() // salto de linea cuando se termina la entrada
 			return
 		}
 
-		line := scanner.Text()                 // obtengo la linea escrita por el usuario
 		shouldExit := processLine(line, false) // proceso la linea como comando normal, no como script
 		if shouldExit {
 			return // si processline devuelve true, cierro el programa
