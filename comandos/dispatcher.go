@@ -28,6 +28,27 @@ func ExecuteCommand(cmd utils.Command) { // esta funcion decide que hacer con el
 		return
 	}
 
+	if cmd.Name == "fdisk" {
+		if err := ExecuteFDisk(cmd.Params); err != nil { // ejecuto la creacion real de particiones
+			fmt.Printf("Error: %v\n", err)
+		}
+		return
+	}
+
+	if cmd.Name == "mount" {
+		if err := ExecuteMount(cmd.Params); err != nil { // ejecuto el montaje en memoria de la particion
+			fmt.Printf("Error: %v\n", err)
+		}
+		return
+	}
+
+	if cmd.Name == "mkfs" {
+		if err := ExecuteMKFS(cmd.Params); err != nil { // ejecuto el formateo ext2 de la particion montada
+			fmt.Printf("Error: %v\n", err)
+		}
+		return
+	}
+
 	fmt.Printf("Comando reconocido: %s\n", cmd.Name) // por ahora solo confirmo que el comando fue valido
 
 	if len(cmd.Params) > 0 {

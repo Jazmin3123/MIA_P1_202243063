@@ -32,6 +32,18 @@ func ReadStructAt(file *os.File, position int64, data any) error { // esta funci
 	return nil
 }
 
+func WriteBytesAt(file *os.File, position int64, data []byte) error { // esta funcion escribe bytes crudos en una posicion exacta
+	if _, err := file.Seek(position, 0); err != nil {
+		return fmt.Errorf("no se pudo mover a la posicion %d: %w", position, err)
+	}
+
+	if _, err := file.Write(data); err != nil {
+		return fmt.Errorf("no se pudieron escribir bytes: %w", err)
+	}
+
+	return nil
+}
+
 func StructSize(data any) int32 { // esta funcion devuelve cuantos bytes ocupa una estructura binaria
 	return int32(binary.Size(data))
 }
