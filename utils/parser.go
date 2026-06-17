@@ -30,6 +30,7 @@ var commandParams = map[string]map[string]bool{ // aqui defino que parametros ac
 	"mkdir":   {"path": true, "p": true},                                                           // parametros validos para crear carpeta
 	"rep":     {"name": true, "path": true, "id": true, "path_file_ls": true},                      // parametros validos para reportes
 	"execute": {"path": true},                                                                      // parametro valido para ejecutar scripts
+	"pause":   {},                                                                                  // pause no recibe parametros
 }
 
 var requiredParams = map[string][]string{ // aqui indico que parametros son obligatorios para validar antes de ejecutar
@@ -164,6 +165,10 @@ func ValidateCommand(cmd Command) error { // esta funcion valida que el comando 
 		return validateFDiskMode(cmd) // fdisk necesita size cuando se crea particion
 	}
 
+	if cmd.Name == "rep" {
+		return validateReportName(cmd) // rep solo acepta los nombres del enunciado
+	}
+
 	return nil
 }
 
@@ -218,6 +223,32 @@ func validateCatFiles(cmd Command) error { // esta funcion valida que cat tenga 
 func validateFDiskMode(cmd Command) error { // esta funcion valida fdisk como creacion de particion en esta etapa
 	if _, hasSize := cmd.Params["size"]; !hasSize {
 		return errors.New("falta parametro obligatorio -size en fdisk para crear particiones") // para esta etapa fdisk se valida como creacion
+	}
+
+	return nil
+}
+
+func validateReportName(cmd Command) error { // esta funcion valida los reportes
+	reportes := map[string]bool{
+		"mbr":      true,
+		"disk":     true,
+		"inode":    true,
+		"block":    true,
+		"bm_inode": true,
+		"bm_block": true,
+		"sb":       true,
+		"file":     true,
+		"ls":       true,
+		"tree":     true,
+	}
+
+	name := strings.ToLower(cmd.Params["name"])
+	if !reportes[name] {
+		return fmt.Errorf("reporte no reconocido: %s", cmd.Params["name"])
+	}
+
+	if (name == "file" || name == "ls") && cmd.Params["path_file_ls"] == "" {
+		return fmt.Errorf("el reporte %s requiere -path_file_ls", name)
 	}
 
 	return nil
