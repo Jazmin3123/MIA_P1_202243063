@@ -1,6 +1,9 @@
 package comandos
 
-import "testing" // uso testing para validar el montaje en memoria
+import (
+	"strings" // uso strings para validar mensajes de error
+	"testing" // uso testing para validar el montaje en memoria
+)
 
 func TestExecuteMountMountsPrimaryPartition(t *testing.T) { // esta prueba valida que mount genere id para una primaria
 	resetMountsForTest()
@@ -31,7 +34,33 @@ func TestExecuteMountRejectsExtendedPartition(t *testing.T) { // esta prueba val
 		t.Fatalf("no se pudo crear extendida: %v", err)
 	}
 
-	if err := ExecuteMount(map[string]string{"path": path, "name": "extendida1"}); err == nil {
+	err := ExecuteMount(map[string]string{"path": path, "name": "extendida1"})
+	if err == nil {
 		t.Fatalf("mount debe rechazar particiones extendidas")
+	}
+
+	if !strings.Contains(err.Error(), "no se puede montar una particion extendida: extendida1") {
+		t.Fatalf("mensaje inesperado para extendida: %v", err)
+	}
+}
+
+func TestExecuteMountMountsLogicalPartition(t *testing.T) { // esta prueba valida que mount tambien encuentre particiones logicas
+	resetMountsForTest()
+	path := createTestDisk(t)
+
+	if err := ExecuteFDisk(map[string]string{"size": "300", "unit": "K", "path": path, "name": "extendida1", "type": "E"}); err != nil {
+		t.Fatalf("no se pudo crear extendida: %v", err)
+	}
+
+	if err := ExecuteFDisk(map[string]string{"size": "50", "unit": "K", "path": path, "name": "logica1", "type": "L"}); err != nil {
+		t.Fatalf("no se pudo crear logica: %v", err)
+	}
+
+	if err := ExecuteMount(map[string]string{"path": path, "name": "logica1"}); err != nil {
+		t.Fatalf("mount logica devolvio error: %v", err)
+	}
+
+	if mountedPartitions[0].Partition.Type != 'L' {
+		t.Fatalf("la particion montada debia ser logica, fue %c", mountedPartitions[0].Partition.Type)
 	}
 }

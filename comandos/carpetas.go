@@ -44,7 +44,16 @@ func EjecutarMKDIR(params map[string]string, flags map[string]bool) error { // e
 	parentIndex := int32(0) // empiezo desde la raiz
 	for index, nombre := range partes {
 		if len(nombre) > 12 {
-			return fmt.Errorf("cada carpeta debe tener maximo 12 caracteres: %s", nombre)
+			return fmt.Errorf("la carpeta %q tiene %d caracteres; el maximo permitido es 12", nombre, len(nombre))
+		}
+
+		parentInode, err := leerInodoPorIndice(file, sb, parentIndex)
+		if err != nil {
+			return err
+		}
+
+		if err := validarPermisoInodo(parentInode, sesion.Usuario, permisoLectura, "entrar a la carpeta padre"); err != nil {
+			return err
 		}
 
 		childIndex, exists, err := buscarEntradaEnCarpeta(file, sb, parentIndex, nombre)
@@ -60,6 +69,10 @@ func EjecutarMKDIR(params map[string]string, flags map[string]bool) error { // e
 		esUltima := index == len(partes)-1
 		if !esUltima && !flags["p"] {
 			return fmt.Errorf("no existe la carpeta padre %s, usa -p para crear padres", nombre)
+		}
+
+		if err := validarPermisoInodo(parentInode, sesion.Usuario, permisoEscritura, "crear carpetas dentro de la carpeta padre"); err != nil {
+			return err
 		}
 
 		newIndex, err := crearCarpeta(file, &sb, parentIndex, nombre, sesion.Usuario.UID, sesion.Usuario.GID)

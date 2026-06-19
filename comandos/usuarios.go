@@ -301,7 +301,7 @@ func escribirUsersTxt(mounted MountedPartition, contenido string) error { // est
 		return err
 	}
 
-	if err := escribirContenidoArchivo(file, &sb, &inode, []byte(contenido)); err != nil {
+	if err := escribirContenidoArchivo(file, &sb, &inode, []byte(contenido), mounted.Partition.Fit); err != nil {
 		return err
 	}
 
@@ -316,13 +316,13 @@ func escribirUsersTxt(mounted MountedPartition, contenido string) error { // est
 	return nil
 }
 
-func escribirContenidoArchivo(file *os.File, sb *estructuras.SuperBlock, inode *estructuras.Inode, contenido []byte) error { // esta funcion escribe contenido usando bloques directos
+func escribirContenidoArchivo(file *os.File, sb *estructuras.SuperBlock, inode *estructuras.Inode, contenido []byte, fit byte) error { // esta funcion escribe contenido usando bloques directos
 	bloquesNecesarios := bloquesNecesariosParaContenido(len(contenido), int(sb.BlockSize))
 	if bloquesNecesarios > 12 {
 		return fmt.Errorf("users.txt supera la capacidad soportada de bloques directos")
 	}
 
-	if err := ajustarBloquesArchivo(file, sb, inode, bloquesNecesarios); err != nil {
+	if err := ajustarBloquesArchivo(file, sb, inode, bloquesNecesarios, fit); err != nil {
 		return err
 	}
 
@@ -354,7 +354,7 @@ func bloquesNecesariosParaContenido(size int, blockSize int) int { // esta funci
 	return (size + blockSize - 1) / blockSize
 }
 
-func ajustarBloquesArchivo(file *os.File, sb *estructuras.SuperBlock, inode *estructuras.Inode, necesarios int) error { // esta funcion asigna o libera bloques directos
+func ajustarBloquesArchivo(file *os.File, sb *estructuras.SuperBlock, inode *estructuras.Inode, necesarios int, fit byte) error { // esta funcion asigna o libera bloques directos
 	actuales := bloquesDirectosUsados(*inode)
 
 	for len(actuales) > necesarios {
@@ -367,18 +367,21 @@ func ajustarBloquesArchivo(file *os.File, sb *estructuras.SuperBlock, inode *est
 		actuales = actuales[:len(actuales)-1]
 	}
 
-	for len(actuales) < necesarios {
-		libre, err := buscarBloqueLibre(file, *sb)
+	if len(actuales) < necesarios {
+		faltantes := necesarios - len(actuales)
+		libres, err := buscarBloquesContiguosLibres(file, *sb, faltantes, fit)
 		if err != nil {
 			return err
 		}
 
-		if err := marcarBloque(file, sb, libre, true); err != nil {
-			return err
-		}
+		for _, libre := range libres {
+			if err := marcarBloque(file, sb, libre, true); err != nil {
+				return err
+			}
 
-		inode.Block[len(actuales)] = libre
-		actuales = append(actuales, libre)
+			inode.Block[len(actuales)] = libre
+			actuales = append(actuales, libre)
+		}
 	}
 
 	return nil
@@ -409,6 +412,61 @@ func buscarBloqueLibre(file *os.File, sb estructuras.SuperBlock) (int32, error) 
 	}
 
 	return 0, fmt.Errorf("no hay bloques libres")
+}
+
+func buscarBloquesContiguosLibres(file *os.File, sb estructuras.SuperBlock, cantidad int, fit byte) ([]int32, error) { // esta funcion busca un tramo contiguo de bloques aplicando el ajuste de la particion
+	if cantidad == 0 {
+		return nil, nil
+	}
+
+	bitmap := make([]byte, sb.BlocksCount)
+	if _, err := file.ReadAt(bitmap, int64(sb.BmBlockStart)); err != nil {
+		return nil, fmt.Errorf("no se pudo leer bitmap de bloques: %w", err)
+	}
+
+	type tramo struct {
+		inicio int
+		size   int
+	}
+
+	var tramos []tramo
+	index := 0
+	for index < len(bitmap) {
+		for index < len(bitmap) && bitmap[index] == '1' {
+			index++
+		}
+
+		inicio := index
+		for index < len(bitmap) && (bitmap[index] == 0 || bitmap[index] == '0') {
+			index++
+		}
+
+		if index-inicio >= cantidad {
+			tramos = append(tramos, tramo{inicio: inicio, size: index - inicio})
+		}
+	}
+
+	if len(tramos) == 0 {
+		return nil, fmt.Errorf("no hay %d bloques contiguos libres", cantidad)
+	}
+
+	seleccionado := 0
+	for index := 1; index < len(tramos); index++ {
+		if fit == 'B' && tramos[index].size < tramos[seleccionado].size {
+			seleccionado = index
+		}
+
+		if fit == 'W' && tramos[index].size > tramos[seleccionado].size {
+			seleccionado = index
+		}
+	}
+
+	resultado := make([]int32, 0, cantidad)
+	for offset := 0; offset < cantidad; offset++ {
+		resultado = append(resultado, int32(tramos[seleccionado].inicio+offset))
+	}
+
+	return resultado, nil
 }
 
 func marcarBloque(file *os.File, sb *estructuras.SuperBlock, index int32, ocupado bool) error { // esta funcion marca un bloque como libre u ocupado

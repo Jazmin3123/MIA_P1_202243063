@@ -42,7 +42,7 @@ func ExecuteMount(params map[string]string) error { // esta funcion ejecuta el c
 	}
 
 	name := params["name"] // obtengo el nombre de la particion a montar
-	partition, err := findPrimaryPartitionByName(mbr, name)
+	partition, err := findMountablePartitionByName(file, mbr, name)
 	if err != nil {
 		return err
 	}
@@ -71,22 +71,69 @@ func ExecuteMount(params map[string]string) error { // esta funcion ejecuta el c
 	return nil
 }
 
-func findPrimaryPartitionByName(mbr estructuras.MBR, name string) (estructuras.Partition, error) { // esta funcion busca una particion primaria por nombre
+func findMountablePartitionByName(file *os.File, mbr estructuras.MBR, name string) (estructuras.Partition, error) { // esta funcion busca una particion primaria o logica por nombre
 	for _, partition := range mbr.Partitions {
 		if partition.Size == 0 {
 			continue
 		}
 
-		if partition.Type != 'P' {
-			continue // por indicacion del proyecto solo se montan primarias
+		if utils.BytesToString(partition.Name[:]) != name {
+			continue
 		}
 
-		if utils.BytesToString(partition.Name[:]) == name {
+		if partition.Type == 'E' {
+			return estructuras.Partition{}, fmt.Errorf("no se puede montar una particion extendida: %s", name)
+		}
+
+		if partition.Type == 'P' {
 			return partition, nil
 		}
 	}
 
-	return estructuras.Partition{}, fmt.Errorf("no existe una particion primaria con nombre %s", name)
+	logical, found, err := findLogicalPartitionByName(file, mbr, name)
+	if err != nil {
+		return estructuras.Partition{}, err
+	}
+
+	if found {
+		return logical, nil
+	}
+
+	return estructuras.Partition{}, fmt.Errorf("no existe una particion primaria o logica con nombre %s", name)
+}
+
+func findLogicalPartitionByName(file *os.File, mbr estructuras.MBR, name string) (estructuras.Partition, bool, error) { // esta funcion recorre los ebr para encontrar una particion logica
+	extended, found := findExtendedPartition(mbr)
+	if !found {
+		return estructuras.Partition{}, false, nil
+	}
+
+	ebrSize := utils.StructSize(estructuras.EBR{})
+	currentPosition := extended.Start
+	for currentPosition != -1 {
+		var ebr estructuras.EBR
+		if err := utils.ReadStructAt(file, int64(currentPosition), &ebr); err != nil {
+			return estructuras.Partition{}, false, err
+		}
+
+		if ebr.Size > 0 && utils.BytesToString(ebr.Name[:]) == name {
+			partition := estructuras.Partition{
+				Status:      ebr.Mount,                // copio el estado guardado en el ebr
+				Type:        'L',                      // identifico que viene de una particion logica
+				Fit:         ebr.Fit,                  // copio el ajuste de la logica
+				Start:       ebr.Start + ebrSize,      // el espacio util empieza despues del ebr
+				Size:        ebr.Size,                 // guardo el tamano util de la logica
+				Name:        ebr.Name,                 // copio el nombre fijo
+				Correlative: 0,                        // el correlativo se maneja en memoria al montar
+				Id:          utils.StringToBytes4(""), // el id real se guarda en la tabla de montajes
+			}
+			return partition, true, nil
+		}
+
+		currentPosition = ebr.Next
+	}
+
+	return estructuras.Partition{}, false, nil
 }
 
 func findMountedPartition(path string, name string) *MountedPartition { // esta funcion revisa si la particion ya esta montada

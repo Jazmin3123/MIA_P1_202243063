@@ -112,14 +112,14 @@ func parsePartitionFit(value string) (byte, error) { // esta funcion valida el a
 	}
 
 	switch fit {
-	case "BF":
+	case "BF", "BESTFIT":
 		return 'B', nil
-	case "FF":
+	case "FF", "FIRSTFIT":
 		return 'F', nil
-	case "WF":
+	case "WF", "WORSTFIT":
 		return 'W', nil
 	default:
-		return 0, fmt.Errorf("fit debe ser BF, FF o WF")
+		return 0, fmt.Errorf("fit debe ser BF, FF, WF, BestFit, FirstFit o WorstFit")
 	}
 }
 

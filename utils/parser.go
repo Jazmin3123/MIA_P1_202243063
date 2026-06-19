@@ -62,9 +62,9 @@ func ParseCommand(line string) (Command, error) { // esta funcion convierte una 
 	}
 
 	cmd := Command{
-		Name:   strings.ToLower(tokens[0]), // el nombre del comando no distingue mayusculas
-		Params: make(map[string]string),    // inicializo el mapa de parametros con valor
-		Flags:  make(map[string]bool),      // inicializo el mapa de banderas sin valor
+		Name:   normalizeCommandName(strings.ToLower(tokens[0])), // el nombre del comando no distingue mayusculas
+		Params: make(map[string]string),                          // inicializo el mapa de parametros con valor
+		Flags:  make(map[string]bool),                            // inicializo el mapa de banderas sin valor
 	}
 
 	for _, token := range tokens[1:] { // reviso cada parametro escrito despues del comando
@@ -72,9 +72,9 @@ func ParseCommand(line string) (Command, error) { // esta funcion convierte una 
 			return Command{}, fmt.Errorf("parametro invalido %q: debe iniciar con '-'", token)
 		}
 
-		rawParam := strings.TrimPrefix(token, "-")         // quito el guion inicial
-		key, value, hasValue := strings.Cut(rawParam, "=") // separo nombre y valor cuando existe =
-		key = strings.ToLower(strings.TrimSpace(key))      // el parametro tambien se trabaja en minusculas
+		rawParam := strings.TrimPrefix(token, "-")                                  // quito el guion inicial
+		key, value, hasValue := strings.Cut(rawParam, "=")                          // separo nombre y valor cuando existe =
+		key = normalizeParamName(cmd.Name, strings.ToLower(strings.TrimSpace(key))) // el parametro tambien se trabaja en minusculas
 
 		if key == "" {
 			return Command{}, fmt.Errorf("parametro invalido %q", token)
@@ -88,6 +88,26 @@ func ParseCommand(line string) (Command, error) { // esta funcion convierte una 
 	}
 
 	return cmd, nil
+}
+
+func normalizeCommandName(name string) string { // esta funcion acepta variantes comunes sin cambiar el flujo principal
+	if name == "mkuser" {
+		return "mkusr"
+	}
+
+	return name
+}
+
+func normalizeParamName(commandName string, key string) string { // esta funcion convierte alias del enunciado o scripts al nombre interno
+	if key == "usr" {
+		return "user"
+	}
+
+	if commandName == "mkfile" && key == "s" {
+		return "size"
+	}
+
+	return key
 }
 
 func splitTokens(line string) ([]string, error) { // esta funcion separa la linea sin romper textos entre comillas
@@ -236,6 +256,7 @@ func validateReportName(cmd Command) error { // esta funcion valida los reportes
 		"block":    true,
 		"bm_inode": true,
 		"bm_block": true,
+		"bm_bloc":  true,
 		"sb":       true,
 		"file":     true,
 		"ls":       true,

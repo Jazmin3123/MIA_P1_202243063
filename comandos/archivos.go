@@ -28,7 +28,7 @@ func EjecutarMKFILE(params map[string]string, flags map[string]bool) error { // 
 	}
 
 	if len(fileName) > 12 {
-		return fmt.Errorf("el nombre del archivo debe tener maximo 12 caracteres")
+		return fmt.Errorf("el archivo %q tiene %d caracteres; el maximo permitido es 12", fileName, len(fileName))
 	}
 
 	content, err := construirContenidoArchivo(params) // genero o cargo el contenido segun -size y -cont
@@ -47,8 +47,17 @@ func EjecutarMKFILE(params map[string]string, flags map[string]bool) error { // 
 		return err
 	}
 
-	parentIndex, err := obtenerOCrearRutaPadre(file, &sb, parentPath, flags["r"], sesion.Usuario.UID, sesion.Usuario.GID)
+	parentIndex, err := obtenerOCrearRutaPadre(file, &sb, parentPath, flags["r"], sesion.Usuario)
 	if err != nil {
+		return err
+	}
+
+	parentInode, err := leerInodoPorIndice(file, sb, parentIndex)
+	if err != nil {
+		return err
+	}
+
+	if err := validarPermisoInodo(parentInode, sesion.Usuario, permisoEscritura, "crear archivos dentro de la carpeta padre"); err != nil {
 		return err
 	}
 
@@ -58,11 +67,25 @@ func EjecutarMKFILE(params map[string]string, flags map[string]bool) error { // 
 	}
 
 	if exists {
-		if err := sobrescribirArchivo(file, &sb, existingIndex, content); err != nil {
+		existingInode, err := leerInodoPorIndice(file, sb, existingIndex)
+		if err != nil {
+			return err
+		}
+
+		if err := validarPermisoInodo(existingInode, sesion.Usuario, permisoEscritura, "sobrescribir el archivo"); err != nil {
+			return err
+		}
+
+		if !confirmarSobrescritura(path) {
+			fmt.Printf("sobrescritura cancelada: %s\n", path)
+			return nil
+		}
+
+		if err := sobrescribirArchivo(file, &sb, existingIndex, content, sesion.Montada.Partition.Fit); err != nil {
 			return err
 		}
 	} else {
-		if err := crearArchivo(file, &sb, parentIndex, fileName, content, sesion.Usuario.UID, sesion.Usuario.GID); err != nil {
+		if err := crearArchivo(file, &sb, parentIndex, fileName, content, sesion.Usuario.UID, sesion.Usuario.GID, sesion.Montada.Partition.Fit); err != nil {
 			return err
 		}
 	}
@@ -97,19 +120,23 @@ func EjecutarCAT(params map[string]string) error { // esta funcion muestra el co
 		return err
 	}
 
+	ultimoTerminaEnSalto := true
 	for index, path := range files {
-		contenido, err := leerArchivoPorRuta(file, sb, path)
-		if err != nil {
-			return err
-		}
-
-		if index > 0 {
+		if index > 0 && !ultimoTerminaEnSalto {
 			fmt.Println()
 		}
+
+		contenido, err := leerArchivoPorRutaConUsuario(file, sb, path, sesion.Usuario)
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			ultimoTerminaEnSalto = true
+			continue
+		}
 		fmt.Print(contenido)
+		ultimoTerminaEnSalto = strings.HasSuffix(contenido, "\n")
 	}
 
-	if len(files) > 0 {
+	if !ultimoTerminaEnSalto {
 		fmt.Println()
 	}
 
@@ -155,10 +182,19 @@ func construirContenidoArchivo(params map[string]string) ([]byte, error) { // es
 	return content, nil
 }
 
-func obtenerOCrearRutaPadre(file *os.File, sb *estructuras.SuperBlock, partes []string, crear bool, uid int32, gid int32) (int32, error) { // esta funcion ubica o crea carpetas padre
+func obtenerOCrearRutaPadre(file *os.File, sb *estructuras.SuperBlock, partes []string, crear bool, usuario UsuarioSistema) (int32, error) { // esta funcion ubica o crea carpetas padre
 	current := int32(0)
 
 	for _, nombre := range partes {
+		currentInode, err := leerInodoPorIndice(file, *sb, current)
+		if err != nil {
+			return 0, err
+		}
+
+		if err := validarPermisoInodo(currentInode, usuario, permisoLectura, "entrar a la carpeta padre"); err != nil {
+			return 0, err
+		}
+
 		child, exists, err := buscarEntradaEnCarpeta(file, *sb, current, nombre)
 		if err != nil {
 			return 0, err
@@ -173,7 +209,11 @@ func obtenerOCrearRutaPadre(file *os.File, sb *estructuras.SuperBlock, partes []
 			return 0, fmt.Errorf("no existe la carpeta padre %s, usa -r para crear padres", nombre)
 		}
 
-		newIndex, err := crearCarpeta(file, sb, current, nombre, uid, gid)
+		if err := validarPermisoInodo(currentInode, usuario, permisoEscritura, "crear carpetas padre"); err != nil {
+			return 0, err
+		}
+
+		newIndex, err := crearCarpeta(file, sb, current, nombre, usuario.UID, usuario.GID)
 		if err != nil {
 			return 0, err
 		}
@@ -183,7 +223,7 @@ func obtenerOCrearRutaPadre(file *os.File, sb *estructuras.SuperBlock, partes []
 	return current, nil
 }
 
-func crearArchivo(file *os.File, sb *estructuras.SuperBlock, parentIndex int32, nombre string, contenido []byte, uid int32, gid int32) error { // esta funcion reserva inodo para un archivo nuevo
+func crearArchivo(file *os.File, sb *estructuras.SuperBlock, parentIndex int32, nombre string, contenido []byte, uid int32, gid int32, fit byte) error { // esta funcion reserva inodo para un archivo nuevo
 	inodeIndex, err := buscarInodoLibre(file, *sb)
 	if err != nil {
 		return err
@@ -194,7 +234,7 @@ func crearArchivo(file *os.File, sb *estructuras.SuperBlock, parentIndex int32, 
 	}
 
 	inode := createInitialInode(uid, gid, 0, estructuras.FileBlockType, "664")
-	if err := escribirContenidoArchivo(file, sb, &inode, contenido); err != nil {
+	if err := escribirContenidoArchivo(file, sb, &inode, contenido, fit); err != nil {
 		return err
 	}
 
@@ -205,7 +245,18 @@ func crearArchivo(file *os.File, sb *estructuras.SuperBlock, parentIndex int32, 
 	return escribirInodoPorIndice(file, *sb, inodeIndex, inode)
 }
 
-func sobrescribirArchivo(file *os.File, sb *estructuras.SuperBlock, inodeIndex int32, contenido []byte) error { // esta funcion reemplaza contenido si el archivo ya existe
+func confirmarSobrescritura(path string) bool { // esta funcion pregunta si se puede reemplazar un archivo existente
+	fmt.Printf("el archivo %s ya existe, deseas sobrescribirlo? [s/n]: ", path)
+	respuesta, err := consoleReader.ReadString('\n')
+	if err != nil {
+		return false
+	}
+
+	respuesta = strings.ToLower(strings.TrimSpace(respuesta))
+	return respuesta == "s" || respuesta == "si" || respuesta == "y" || respuesta == "yes"
+}
+
+func sobrescribirArchivo(file *os.File, sb *estructuras.SuperBlock, inodeIndex int32, contenido []byte, fit byte) error { // esta funcion reemplaza contenido si el archivo ya existe
 	inode, err := leerInodoPorIndice(file, *sb, inodeIndex)
 	if err != nil {
 		return err
@@ -215,7 +266,7 @@ func sobrescribirArchivo(file *os.File, sb *estructuras.SuperBlock, inodeIndex i
 		return fmt.Errorf("ya existe una carpeta con ese nombre")
 	}
 
-	if err := escribirContenidoArchivo(file, sb, &inode, contenido); err != nil {
+	if err := escribirContenidoArchivo(file, sb, &inode, contenido, fit); err != nil {
 		return err
 	}
 
@@ -244,6 +295,28 @@ func leerArchivoPorRuta(file *os.File, sb estructuras.SuperBlock, path string) (
 	return leerContenidoArchivo(file, sb, inode)
 }
 
+func leerArchivoPorRutaConUsuario(file *os.File, sb estructuras.SuperBlock, path string, usuario UsuarioSistema) (string, error) { // esta funcion lee un archivo validando permisos del usuario activo
+	inodeIndex, err := buscarInodoPorRutaConUsuario(file, sb, path, usuario)
+	if err != nil {
+		return "", err
+	}
+
+	inode, err := leerInodoPorIndice(file, sb, inodeIndex)
+	if err != nil {
+		return "", err
+	}
+
+	if inode.Type != estructuras.FileBlockType {
+		return "", fmt.Errorf("%s no es un archivo", path)
+	}
+
+	if err := validarPermisoInodo(inode, usuario, permisoLectura, "leer el archivo"); err != nil {
+		return "", err
+	}
+
+	return leerContenidoArchivo(file, sb, inode)
+}
+
 func buscarInodoPorRuta(file *os.File, sb estructuras.SuperBlock, path string) (int32, error) { // esta funcion recorre carpetas hasta encontrar un inodo
 	partes := separarRuta(path)
 	if len(partes) == 0 {
@@ -252,6 +325,46 @@ func buscarInodoPorRuta(file *os.File, sb estructuras.SuperBlock, path string) (
 
 	current := int32(0)
 	for _, nombre := range partes {
+		next, exists, err := buscarEntradaEnCarpeta(file, sb, current, nombre)
+		if err != nil {
+			return 0, err
+		}
+
+		if !exists {
+			return 0, fmt.Errorf("no existe la ruta %s", path)
+		}
+
+		current = next
+	}
+
+	return current, nil
+}
+
+func buscarInodoPorRutaConUsuario(file *os.File, sb estructuras.SuperBlock, path string, usuario UsuarioSistema) (int32, error) { // esta funcion recorre una ruta validando permiso de ejecucion en carpetas
+	if !strings.HasPrefix(path, "/") {
+		return 0, fmt.Errorf("path debe ser una ruta absoluta")
+	}
+
+	partes := separarRuta(path)
+	if len(partes) == 0 {
+		return 0, nil
+	}
+
+	current := int32(0)
+	for _, nombre := range partes {
+		currentInode, err := leerInodoPorIndice(file, sb, current)
+		if err != nil {
+			return 0, err
+		}
+
+		if currentInode.Type != estructuras.FolderBlockType {
+			return 0, fmt.Errorf("la ruta contiene un archivo donde se esperaba carpeta")
+		}
+
+		if err := validarPermisoInodo(currentInode, usuario, permisoLectura, "entrar a la carpeta"); err != nil {
+			return 0, err
+		}
+
 		next, exists, err := buscarEntradaEnCarpeta(file, sb, current, nombre)
 		if err != nil {
 			return 0, err

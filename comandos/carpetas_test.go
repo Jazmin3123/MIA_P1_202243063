@@ -53,3 +53,11 @@ func TestEjecutarMKDIRRequierePadresOSesion(t *testing.T) { // esta prueba valid
 		t.Fatalf("mkdir sin -p debe fallar si no existe el padre")
 	}
 }
+
+func TestEjecutarMKDIRAceptaSegmentoConEspaciosValido(t *testing.T) { // esta prueba valida nombres con espacios de hasta 12 caracteres
+	prepararSesionRootParaUsuarios(t)
+
+	if err := EjecutarMKDIR(map[string]string{"path": "/home/user/mis docs"}, map[string]bool{"p": true}); err != nil {
+		t.Fatalf("mkdir con espacio devolvio error: %v", err)
+	}
+}

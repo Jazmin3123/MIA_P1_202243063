@@ -31,12 +31,21 @@ func ExecuteMKDisk(params map[string]string) error { // esta funcion ejecuta el 
 		return err
 	}
 
+	if _, err := os.Stat(path); err == nil {
+		return fmt.Errorf("ya existe un disco en la ruta %s", path)
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("no se pudo comprobar la ruta del disco: %w", err)
+	}
+
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return fmt.Errorf("no se pudieron crear las carpetas del path: %w", err)
 	}
 
-	file, err := os.Create(path) // creo el archivo del disco desde cero
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0666) // creo el disco solo si todavia no existe
 	if err != nil {
+		if os.IsExist(err) {
+			return fmt.Errorf("ya existe un disco en la ruta %s", path)
+		}
 		return fmt.Errorf("no se pudo crear el disco: %w", err)
 	}
 	defer file.Close() // cierro el archivo al terminar
@@ -88,14 +97,14 @@ func parseDiskFit(value string) (byte, error) { // esta funcion valida el ajuste
 	}
 
 	switch fit {
-	case "BF":
+	case "BF", "BESTFIT":
 		return 'B', nil
-	case "FF":
+	case "FF", "FIRSTFIT":
 		return 'F', nil
-	case "WF":
+	case "WF", "WORSTFIT":
 		return 'W', nil
 	default:
-		return 0, fmt.Errorf("fit debe ser BF, FF o WF")
+		return 0, fmt.Errorf("fit debe ser BF, FF, WF, BestFit, FirstFit o WorstFit")
 	}
 }
 
