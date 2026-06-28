@@ -359,25 +359,59 @@ func reporteBLOCK(mounted MountedPartition, outputPath string) error { // esta f
 	visitados := map[int32]bool{}
 
 	for _, item := range used {
-		for _, pointer := range item.Inode.Block {
-			if pointer == -1 || visitados[pointer] {
-				continue
-			}
-			visitados[pointer] = true
+		if item.Inode.Type == estructuras.FolderBlockType {
+			for _, pointer := range item.Inode.Block {
+				if pointer == -1 || visitados[pointer] {
+					continue
+				}
+				visitados[pointer] = true
 
-			if item.Inode.Type == estructuras.FolderBlockType {
 				block, err := leerBloqueCarpeta(file, sb, pointer)
 				if err != nil {
 					return err
 				}
 				escribirNodoBloqueCarpeta(&dot, pointer, block)
-			} else {
-				var block estructuras.FileBlock
-				if err := utils.ReadStructAt(file, int64(sb.BlockStart+pointer*sb.BlockSize), &block); err != nil {
-					return err
-				}
-				escribirNodoBloqueArchivo(&dot, pointer, block)
 			}
+			continue
+		}
+
+		for index := 0; index < bloquesDirectosArchivo; index++ {
+			pointer := item.Inode.Block[index]
+			if pointer == -1 || visitados[pointer] {
+				continue
+			}
+			visitados[pointer] = true
+
+			var block estructuras.FileBlock
+			if err := utils.ReadStructAt(file, int64(sb.BlockStart+pointer*sb.BlockSize), &block); err != nil {
+				return err
+			}
+			escribirNodoBloqueArchivo(&dot, pointer, block)
+		}
+
+		pointerIndex := item.Inode.Block[indiceApuntadorSimpleArchivo]
+		if pointerIndex == -1 || visitados[pointerIndex] {
+			continue
+		}
+		visitados[pointerIndex] = true
+
+		var pointerBlock estructuras.PointerBlock
+		if err := utils.ReadStructAt(file, int64(sb.BlockStart+pointerIndex*sb.BlockSize), &pointerBlock); err != nil {
+			return err
+		}
+		escribirNodoBloqueApuntadores(&dot, pointerIndex, pointerBlock)
+
+		for _, dataPointer := range pointerBlock.Pointers {
+			if dataPointer == -1 || visitados[dataPointer] {
+				continue
+			}
+			visitados[dataPointer] = true
+
+			var block estructuras.FileBlock
+			if err := utils.ReadStructAt(file, int64(sb.BlockStart+dataPointer*sb.BlockSize), &block); err != nil {
+				return err
+			}
+			escribirNodoBloqueArchivo(&dot, dataPointer, block)
 		}
 	}
 
@@ -729,6 +763,15 @@ func escribirNodoBloqueArchivo(dot *strings.Builder, index int32, block estructu
 	dot.WriteString("</table>>];\n")
 }
 
+func escribirNodoBloqueApuntadores(dot *strings.Builder, index int32, block estructuras.PointerBlock) { // esta funcion escribe un bloque de apuntadores en graphviz
+	dot.WriteString(fmt.Sprintf("block%d [label=<\n<table border='1' cellborder='1' cellspacing='0'>\n", index))
+	dot.WriteString(fmt.Sprintf("<tr><td colspan='2'><b>BLOQUE APUNTADORES %d</b></td></tr>\n", index))
+	for pointerIndex, pointer := range block.Pointers {
+		dot.WriteString(fmt.Sprintf("<tr><td>%d</td><td>%d</td></tr>\n", pointerIndex, pointer))
+	}
+	dot.WriteString("</table>>];\n")
+}
+
 func escribirTreeInodo(file *os.File, sb estructuras.SuperBlock, inodeIndex int32, dot *strings.Builder, visitados map[int32]bool) error { // esta funcion recorre inodos para reporte tree
 	if visitados[inodeIndex] {
 		return nil
@@ -749,14 +792,13 @@ func escribirTreeInodo(file *os.File, sb estructuras.SuperBlock, inodeIndex int3
 	dot.WriteString(fmt.Sprintf("<tr><td><b>INODO %d</b></td></tr><tr><td>%s</td></tr><tr><td>size=%d</td></tr>\n", inodeIndex, tipo, inode.Size))
 	dot.WriteString("</table>>];\n")
 
-	for _, blockIndex := range inode.Block {
-		if blockIndex == -1 {
-			continue
-		}
+	if inode.Type == estructuras.FolderBlockType {
+		for _, blockIndex := range inode.Block {
+			if blockIndex == -1 {
+				continue
+			}
 
-		dot.WriteString(fmt.Sprintf("inode%d -> block%d;\n", inodeIndex, blockIndex))
-
-		if inode.Type == estructuras.FolderBlockType {
+			dot.WriteString(fmt.Sprintf("inode%d -> block%d;\n", inodeIndex, blockIndex))
 			block, err := leerBloqueCarpeta(file, sb, blockIndex)
 			if err != nil {
 				return err
@@ -774,13 +816,47 @@ func escribirTreeInodo(file *os.File, sb estructuras.SuperBlock, inodeIndex int3
 					return err
 				}
 			}
-		} else {
-			var block estructuras.FileBlock
-			if err := utils.ReadStructAt(file, int64(sb.BlockStart+blockIndex*sb.BlockSize), &block); err != nil {
-				return err
-			}
-			escribirNodoBloqueArchivo(dot, blockIndex, block)
 		}
+		return nil
+	}
+
+	for index := 0; index < bloquesDirectosArchivo; index++ {
+		blockIndex := inode.Block[index]
+		if blockIndex == -1 {
+			continue
+		}
+
+		dot.WriteString(fmt.Sprintf("inode%d -> block%d;\n", inodeIndex, blockIndex))
+		var block estructuras.FileBlock
+		if err := utils.ReadStructAt(file, int64(sb.BlockStart+blockIndex*sb.BlockSize), &block); err != nil {
+			return err
+		}
+		escribirNodoBloqueArchivo(dot, blockIndex, block)
+	}
+
+	pointerIndex := inode.Block[indiceApuntadorSimpleArchivo]
+	if pointerIndex == -1 {
+		return nil
+	}
+
+	dot.WriteString(fmt.Sprintf("inode%d -> block%d;\n", inodeIndex, pointerIndex))
+	var pointerBlock estructuras.PointerBlock
+	if err := utils.ReadStructAt(file, int64(sb.BlockStart+pointerIndex*sb.BlockSize), &pointerBlock); err != nil {
+		return err
+	}
+	escribirNodoBloqueApuntadores(dot, pointerIndex, pointerBlock)
+
+	for _, blockIndex := range pointerBlock.Pointers {
+		if blockIndex == -1 {
+			continue
+		}
+
+		dot.WriteString(fmt.Sprintf("block%d -> block%d;\n", pointerIndex, blockIndex))
+		var block estructuras.FileBlock
+		if err := utils.ReadStructAt(file, int64(sb.BlockStart+blockIndex*sb.BlockSize), &block); err != nil {
+			return err
+		}
+		escribirNodoBloqueArchivo(dot, blockIndex, block)
 	}
 
 	return nil

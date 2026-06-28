@@ -55,6 +55,58 @@ func TestLeerArchivoPorRutaParaCAT(t *testing.T) { // esta prueba valida la lect
 	}
 }
 
+func TestEjecutarMKFILEUsaApuntadorSimple(t *testing.T) { // esta prueba valida archivos mayores a 12 bloques directos
+	prepararSesionRootParaUsuarios(t)
+
+	path := "/docs/grande.txt"
+	if err := EjecutarMKFILE(map[string]string{"path": path, "size": "900"}, map[string]bool{"r": true}); err != nil {
+		t.Fatalf("mkfile grande devolvio error: %v", err)
+	}
+
+	contenido := leerArchivoPrueba(t, path)
+	if len(contenido) != 900 {
+		t.Fatalf("contenido grande esperaba 900 bytes, obtuvo %d", len(contenido))
+	}
+
+	if !strings.HasPrefix(contenido, "01234567890123456789") {
+		t.Fatalf("contenido grande no mantiene el patron esperado: %q", contenido[:20])
+	}
+
+	file, sb := abrirDiscoPrueba(t)
+	defer file.Close()
+
+	inodeIndex, err := buscarInodoPorRuta(file, sb, path)
+	if err != nil {
+		t.Fatalf("no se encontro el archivo grande: %v", err)
+	}
+
+	inode, err := leerInodoPorIndice(file, sb, inodeIndex)
+	if err != nil {
+		t.Fatalf("no se pudo leer inodo grande: %v", err)
+	}
+
+	if inode.Block[indiceApuntadorSimpleArchivo] == -1 {
+		t.Fatalf("el archivo grande no uso apuntador simple")
+	}
+
+	var pointerBlock estructuras.PointerBlock
+	position := int64(sb.BlockStart + inode.Block[indiceApuntadorSimpleArchivo]*sb.BlockSize)
+	if err := utils.ReadStructAt(file, position, &pointerBlock); err != nil {
+		t.Fatalf("no se pudo leer bloque apuntador: %v", err)
+	}
+
+	usados := 0
+	for _, pointer := range pointerBlock.Pointers {
+		if pointer != -1 {
+			usados++
+		}
+	}
+
+	if usados != 3 {
+		t.Fatalf("el apuntador simple esperaba 3 bloques extra, obtuvo %d", usados)
+	}
+}
+
 func TestEjecutarMKFILENoSobrescribeSinConfirmacion(t *testing.T) { // esta prueba valida que mkfile pregunte antes de sobrescribir
 	prepararSesionRootParaUsuarios(t)
 
@@ -118,16 +170,8 @@ func capturarSalidaPrueba(t *testing.T, accion func()) string { // esta funcion 
 
 func leerArchivoPrueba(t *testing.T, path string) string { // esta funcion lee un archivo del ext2 de prueba
 	t.Helper()
-	file, err := os.Open(sesionActual.Montada.Path)
-	if err != nil {
-		t.Fatalf("no se pudo abrir disco: %v", err)
-	}
+	file, sb := abrirDiscoPrueba(t)
 	defer file.Close()
-
-	var sb estructuras.SuperBlock
-	if err := utils.ReadStructAt(file, int64(sesionActual.Montada.Partition.Start), &sb); err != nil {
-		t.Fatalf("no se pudo leer superbloque: %v", err)
-	}
 
 	contenido, err := leerArchivoPorRuta(file, sb, path)
 	if err != nil {
@@ -135,4 +179,20 @@ func leerArchivoPrueba(t *testing.T, path string) string { // esta funcion lee u
 	}
 
 	return contenido
+}
+
+func abrirDiscoPrueba(t *testing.T) (*os.File, estructuras.SuperBlock) { // esta funcion abre el disco ext2 activo en pruebas
+	t.Helper()
+	file, err := os.Open(sesionActual.Montada.Path)
+	if err != nil {
+		t.Fatalf("no se pudo abrir disco: %v", err)
+	}
+
+	var sb estructuras.SuperBlock
+	if err := utils.ReadStructAt(file, int64(sesionActual.Montada.Partition.Start), &sb); err != nil {
+		file.Close()
+		t.Fatalf("no se pudo leer superbloque: %v", err)
+	}
+
+	return file, sb
 }

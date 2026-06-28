@@ -150,20 +150,22 @@ func leerUsersTxt(mounted MountedPartition) (string, error) { // esta funcion le
 	return contenido, nil
 }
 
-func leerContenidoArchivo(file *os.File, sb estructuras.SuperBlock, inode estructuras.Inode) (string, error) { // esta funcion lee contenido usando apuntadores directos
+func leerContenidoArchivo(file *os.File, sb estructuras.SuperBlock, inode estructuras.Inode) (string, error) { // esta funcion lee contenido usando directos y apuntador simple
 	if inode.Size == 0 {
 		return "", nil
 	}
 
 	resultado := make([]byte, 0, inode.Size)
 	pendiente := inode.Size
+	bloquesContenido, err := bloquesContenidoArchivo(file, sb, inode)
+	if err != nil {
+		return "", err
+	}
 
-	for index := 0; index < 12 && pendiente > 0; index++ {
-		blockIndex := inode.Block[index]
-		if blockIndex == -1 {
-			continue
+	for _, blockIndex := range bloquesContenido {
+		if pendiente <= 0 {
+			break
 		}
-
 		var block estructuras.FileBlock
 		blockPosition := int64(sb.BlockStart + blockIndex*sb.BlockSize)
 		if err := utils.ReadStructAt(file, blockPosition, &block); err != nil {

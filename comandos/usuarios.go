@@ -316,13 +316,24 @@ func escribirUsersTxt(mounted MountedPartition, contenido string) error { // est
 	return nil
 }
 
-func escribirContenidoArchivo(file *os.File, sb *estructuras.SuperBlock, inode *estructuras.Inode, contenido []byte, fit byte) error { // esta funcion escribe contenido usando bloques directos
+const (
+	bloquesDirectosArchivo       = 12 // aqui respeto los primeros 12 apuntadores directos del inodo
+	indiceApuntadorSimpleArchivo = 12 // aqui uso el apuntador 13 del inodo como simple indirecto
+	bloquesApuntadorSimple       = 16 // aqui uso las 16 posiciones del bloque de apuntadores
+)
+
+func escribirContenidoArchivo(file *os.File, sb *estructuras.SuperBlock, inode *estructuras.Inode, contenido []byte, fit byte) error { // esta funcion escribe contenido usando directos y apuntador simple
 	bloquesNecesarios := bloquesNecesariosParaContenido(len(contenido), int(sb.BlockSize))
-	if bloquesNecesarios > 12 {
-		return fmt.Errorf("users.txt supera la capacidad soportada de bloques directos")
+	if bloquesNecesarios > bloquesDirectosArchivo+bloquesApuntadorSimple {
+		return fmt.Errorf("archivo supera la capacidad soportada de apuntador simple indirecto")
 	}
 
 	if err := ajustarBloquesArchivo(file, sb, inode, bloquesNecesarios, fit); err != nil {
+		return err
+	}
+
+	bloquesContenido, err := bloquesContenidoArchivo(file, *sb, *inode)
+	if err != nil {
 		return err
 	}
 
@@ -335,7 +346,7 @@ func escribirContenidoArchivo(file *os.File, sb *estructuras.SuperBlock, inode *
 		}
 
 		copy(block.Content[:], contenido[inicio:fin])
-		blockPosition := int64(sb.BlockStart + inode.Block[index]*sb.BlockSize)
+		blockPosition := int64(sb.BlockStart + bloquesContenido[index]*sb.BlockSize)
 		if err := utils.WriteStructAt(file, blockPosition, &block); err != nil {
 			return err
 		}
@@ -354,43 +365,149 @@ func bloquesNecesariosParaContenido(size int, blockSize int) int { // esta funci
 	return (size + blockSize - 1) / blockSize
 }
 
-func ajustarBloquesArchivo(file *os.File, sb *estructuras.SuperBlock, inode *estructuras.Inode, necesarios int, fit byte) error { // esta funcion asigna o libera bloques directos
-	actuales := bloquesDirectosUsados(*inode)
-
-	for len(actuales) > necesarios {
-		ultimo := actuales[len(actuales)-1]
-		if err := marcarBloque(file, sb, ultimo, false); err != nil {
-			return err
-		}
-
-		inode.Block[len(actuales)-1] = -1
-		actuales = actuales[:len(actuales)-1]
+func ajustarBloquesArchivo(file *os.File, sb *estructuras.SuperBlock, inode *estructuras.Inode, necesarios int, fit byte) error { // esta funcion asigna bloques de archivo directos e indirectos
+	if necesarios > bloquesDirectosArchivo+bloquesApuntadorSimple {
+		return fmt.Errorf("archivo supera la capacidad soportada de apuntador simple indirecto")
 	}
 
-	if len(actuales) < necesarios {
-		faltantes := necesarios - len(actuales)
-		libres, err := buscarBloquesContiguosLibres(file, *sb, faltantes, fit)
-		if err != nil {
+	if err := liberarBloquesArchivo(file, sb, inode); err != nil {
+		return err
+	}
+
+	if necesarios == 0 {
+		return nil
+	}
+
+	totalReservar := necesarios
+	usaApuntadorSimple := necesarios > bloquesDirectosArchivo
+	if usaApuntadorSimple {
+		totalReservar++ // sumo el bloque que guardara los apuntadores indirectos
+	}
+
+	libres, err := buscarBloquesContiguosLibres(file, *sb, totalReservar, fit)
+	if err != nil {
+		return fmt.Errorf("no hay espacio suficiente para escribir archivo: %w", err)
+	}
+
+	posicionLibre := 0
+	directos := necesarios
+	if directos > bloquesDirectosArchivo {
+		directos = bloquesDirectosArchivo
+	}
+
+	for index := 0; index < directos; index++ {
+		if err := marcarBloque(file, sb, libres[posicionLibre], true); err != nil {
+			return err
+		}
+		inode.Block[index] = libres[posicionLibre]
+		posicionLibre++
+	}
+
+	if !usaApuntadorSimple {
+		return nil
+	}
+
+	apuntadorSimple := libres[posicionLibre]
+	posicionLibre++
+	if err := marcarBloque(file, sb, apuntadorSimple, true); err != nil {
+		return err
+	}
+	inode.Block[indiceApuntadorSimpleArchivo] = apuntadorSimple
+
+	pointerBlock := bloqueApuntadoresVacio()
+	indirectos := necesarios - bloquesDirectosArchivo
+	for index := 0; index < indirectos; index++ {
+		if err := marcarBloque(file, sb, libres[posicionLibre], true); err != nil {
+			return err
+		}
+		pointerBlock.Pointers[index] = libres[posicionLibre]
+		posicionLibre++
+	}
+
+	position := int64(sb.BlockStart + apuntadorSimple*sb.BlockSize)
+	return utils.WriteStructAt(file, position, &pointerBlock)
+}
+
+func liberarBloquesArchivo(file *os.File, sb *estructuras.SuperBlock, inode *estructuras.Inode) error { // esta funcion libera los bloques actuales de un archivo antes de reescribirlo
+	for index := 0; index < bloquesDirectosArchivo; index++ {
+		if inode.Block[index] == -1 {
+			continue
+		}
+
+		if err := marcarBloque(file, sb, inode.Block[index], false); err != nil {
+			return err
+		}
+		inode.Block[index] = -1
+	}
+
+	if inode.Block[indiceApuntadorSimpleArchivo] != -1 {
+		var pointerBlock estructuras.PointerBlock
+		position := int64(sb.BlockStart + inode.Block[indiceApuntadorSimpleArchivo]*sb.BlockSize)
+		if err := utils.ReadStructAt(file, position, &pointerBlock); err != nil {
 			return err
 		}
 
-		for _, libre := range libres {
-			if err := marcarBloque(file, sb, libre, true); err != nil {
-				return err
+		for _, pointer := range pointerBlock.Pointers {
+			if pointer == -1 {
+				continue
 			}
 
-			inode.Block[len(actuales)] = libre
-			actuales = append(actuales, libre)
+			if err := marcarBloque(file, sb, pointer, false); err != nil {
+				return err
+			}
 		}
+
+		if err := marcarBloque(file, sb, inode.Block[indiceApuntadorSimpleArchivo], false); err != nil {
+			return err
+		}
+	}
+
+	for index := range inode.Block {
+		inode.Block[index] = -1
 	}
 
 	return nil
 }
 
+func bloquesContenidoArchivo(file *os.File, sb estructuras.SuperBlock, inode estructuras.Inode) ([]int32, error) { // esta funcion devuelve los bloques de datos del archivo en orden
+	var bloques []int32
+
+	for index := 0; index < bloquesDirectosArchivo; index++ {
+		if inode.Block[index] != -1 {
+			bloques = append(bloques, inode.Block[index])
+		}
+	}
+
+	if inode.Block[indiceApuntadorSimpleArchivo] != -1 {
+		var pointerBlock estructuras.PointerBlock
+		position := int64(sb.BlockStart + inode.Block[indiceApuntadorSimpleArchivo]*sb.BlockSize)
+		if err := utils.ReadStructAt(file, position, &pointerBlock); err != nil {
+			return nil, err
+		}
+
+		for _, pointer := range pointerBlock.Pointers {
+			if pointer != -1 {
+				bloques = append(bloques, pointer)
+			}
+		}
+	}
+
+	return bloques, nil
+}
+
+func bloqueApuntadoresVacio() estructuras.PointerBlock { // esta funcion crea un bloque apuntador con todas sus posiciones libres
+	block := estructuras.PointerBlock{}
+	for index := range block.Pointers {
+		block.Pointers[index] = -1
+	}
+
+	return block
+}
+
 func bloquesDirectosUsados(inode estructuras.Inode) []int32 { // esta funcion obtiene los bloques directos ocupados del inodo
 	var usados []int32
 
-	for index := 0; index < 12; index++ {
+	for index := 0; index < bloquesDirectosArchivo; index++ {
 		if inode.Block[index] != -1 {
 			usados = append(usados, inode.Block[index])
 		}

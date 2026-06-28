@@ -10,7 +10,7 @@ import (
 	"MIA_P1_202243063/utils"       // uso utils para escribir structs binarios
 )
 
-const initialUsersContent = "1,G,root\n1,U,root,root,123\n" // aqui dejo el contenido inicial de users.txt
+const initialUsersContent = "1,G,root\n1,U,root,root,123\n2,U,root,prueba,prueba\n2,U,prueba,prueba,prueba\n" // aqui dejo el contenido inicial de users.txt
 
 func ExecuteMKFS(params map[string]string) error { // esta funcion ejecuta el comando mkfs
 	formatType := strings.ToLower(params["type"]) // si no viene type, se usa full

@@ -16,64 +16,73 @@ import (
 const zeroBufferSize = 1024 // aqui defino el tamano del bloque de ceros recomendado por el enunciado
 
 func ExecuteMKDisk(params map[string]string) error { // esta funcion ejecuta el comando mkdisk
-	sizeBytes, err := parseDiskSize(params) // convierto size y unit a bytes reales
+	size, err := strconv.Atoi(params["size"])
 	if err != nil {
-		return err
+		return fmt.Errorf("size debe ser un numero entero")
 	}
 
-	path := params["path"] // obtengo la ruta donde se creara el disco
+	_, err = CrearDisco(size, params["unit"], params["fit"], params["path"])
+	return err
+}
+
+func CrearDisco(size int, unit string, fitValue string, path string) (int64, error) { // esta funcion crea un disco y la reutilizan CLI y API
+	sizeBytes, err := parseDiskSize(size, unit) // convierto size y unit a bytes reales
+	if err != nil {
+		return 0, err
+	}
+
+	path = strings.TrimSpace(path) // obtengo la ruta donde se creara el disco
+	if path == "" {
+		return 0, fmt.Errorf("path es obligatorio")
+	}
+
 	if !strings.HasSuffix(strings.ToLower(path), ".mia") {
-		return fmt.Errorf("el disco debe tener extension .mia")
+		return 0, fmt.Errorf("el disco debe tener extension .mia")
 	}
 
-	fit, err := parseDiskFit(params["fit"]) // convierto el ajuste a b, f o w
+	fit, err := parseDiskFit(fitValue) // convierto el ajuste a b, f o w
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	if _, err := os.Stat(path); err == nil {
-		return fmt.Errorf("ya existe un disco en la ruta %s", path)
+		return 0, fmt.Errorf("ya existe un disco en la ruta %s", path)
 	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("no se pudo comprobar la ruta del disco: %w", err)
+		return 0, fmt.Errorf("no se pudo comprobar la ruta del disco: %w", err)
 	}
 
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return fmt.Errorf("no se pudieron crear las carpetas del path: %w", err)
+		return 0, fmt.Errorf("no se pudieron crear las carpetas del path: %w", err)
 	}
 
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0666) // creo el disco solo si todavia no existe
 	if err != nil {
 		if os.IsExist(err) {
-			return fmt.Errorf("ya existe un disco en la ruta %s", path)
+			return 0, fmt.Errorf("ya existe un disco en la ruta %s", path)
 		}
-		return fmt.Errorf("no se pudo crear el disco: %w", err)
+		return 0, fmt.Errorf("no se pudo crear el disco: %w", err)
 	}
 	defer file.Close() // cierro el archivo al terminar
 
 	if err := fillFileWithZeros(file, sizeBytes); err != nil {
-		return err
+		return 0, err
 	}
 
 	mbr := createInitialMBR(sizeBytes, fit) // creo el mbr inicial que va al inicio del disco
 	if err := utils.WriteStructAt(file, 0, &mbr); err != nil {
-		return err
+		return 0, err
 	}
 
 	fmt.Printf("disco creado correctamente: %s (%d bytes)\n", path, sizeBytes)
-	return nil
+	return int64(sizeBytes), nil
 }
 
-func parseDiskSize(params map[string]string) (int32, error) { // esta funcion valida size y unit para devolver bytes
-	size, err := strconv.Atoi(params["size"])
-	if err != nil {
-		return 0, fmt.Errorf("size debe ser un numero entero")
-	}
-
+func parseDiskSize(size int, unit string) (int32, error) { // esta funcion valida size y unit para devolver bytes
 	if size <= 0 {
 		return 0, fmt.Errorf("size debe ser mayor que cero")
 	}
 
-	unit := strings.ToUpper(params["unit"]) // si no viene unit, se usa megabytes
+	unit = strings.ToUpper(unit) // si no viene unit, se usa megabytes
 	if unit == "" {
 		unit = "M"
 	}
