@@ -36,6 +36,20 @@ type SessionResponse struct {
 	Error   string      `json:"error,omitempty"`
 }
 
+type FileSystemTreeResponse struct {
+	OK    bool                     `json:"ok"`
+	Path  string                   `json:"path,omitempty"`
+	Items []comandos.DirectoryItem `json:"items,omitempty"`
+	Error string                   `json:"error,omitempty"`
+}
+
+type FileSystemFileResponse struct {
+	OK      bool   `json:"ok"`
+	Path    string `json:"path,omitempty"`
+	Content string `json:"content,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
 type ApiResponse struct {
 	OK        bool   `json:"ok"`
 	Message   string `json:"message,omitempty"`
@@ -49,6 +63,8 @@ func StartAPI() error {
 	http.HandleFunc("/execute", handleExecute)
 	http.HandleFunc("/mounts", handleMounts)
 	http.HandleFunc("/session", handleSession)
+	http.HandleFunc("/fs/tree", handleFileSystemTree)
+	http.HandleFunc("/fs/file", handleFileSystemFile)
 	return http.ListenAndServe(":8080", nil)
 }
 
@@ -192,6 +208,84 @@ func handleSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, SessionResponse{
 		OK:      true,
 		Session: comandos.GetCurrentSession(),
+	})
+}
+
+func handleFileSystemTree(w http.ResponseWriter, r *http.Request) {
+	setCORSHeaders(w)
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		writeJSON(w, FileSystemTreeResponse{
+			OK:    false,
+			Error: "metodo no permitido, use GET",
+		})
+		return
+	}
+
+	id := r.URL.Query().Get("id")
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		path = "/"
+	}
+
+	items, err := comandos.ListDirectory(id, path)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		writeJSON(w, FileSystemTreeResponse{
+			OK:    false,
+			Error: err.Error(),
+		})
+		return
+	}
+
+	writeJSON(w, FileSystemTreeResponse{
+		OK:    true,
+		Path:  path,
+		Items: items,
+	})
+}
+
+func handleFileSystemFile(w http.ResponseWriter, r *http.Request) {
+	setCORSHeaders(w)
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		writeJSON(w, FileSystemFileResponse{
+			OK:    false,
+			Error: "metodo no permitido, use GET",
+		})
+		return
+	}
+
+	id := r.URL.Query().Get("id")
+	path := r.URL.Query().Get("path")
+	content, err := comandos.ReadFileContent(id, path)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		writeJSON(w, FileSystemFileResponse{
+			OK:    false,
+			Error: err.Error(),
+		})
+		return
+	}
+
+	writeJSON(w, FileSystemFileResponse{
+		OK:      true,
+		Path:    path,
+		Content: content,
 	})
 }
 
