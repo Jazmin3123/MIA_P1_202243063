@@ -20,6 +20,18 @@ type MountedPartition struct { // esta estructura representa una particion monta
 	Partition estructuras.Partition // aqui guardo la informacion de la particion montada
 }
 
+type MountedPartitionInfo struct { // esta estructura expone montajes de forma amigable para la API
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Path        string `json:"path"`
+	Letter      string `json:"letter"`
+	Correlative int    `json:"correlative"`
+	DiskIndex   int    `json:"disk_index"`
+	Type        string `json:"type"`
+	Start       int32  `json:"start"`
+	Size        int32  `json:"size"`
+}
+
 var mountedPartitions []MountedPartition  // aqui guardo las particiones montadas mientras el programa esta abierto
 var mountedDiskNumbers = map[string]int{} // aqui guardo el numero asignado a cada disco montado
 var nextDiskNumber = 1                    // aqui guardo el siguiente numero disponible para un disco nuevo
@@ -182,6 +194,26 @@ func FindMountedPartitionByID(id string) (*MountedPartition, bool) { // esta fun
 	}
 
 	return nil, false
+}
+
+func ListMountedPartitions() interface{} { // esta funcion devuelve los montajes actuales para consultas de la API
+	mounts := make([]MountedPartitionInfo, 0, len(mountedPartitions))
+
+	for _, mounted := range mountedPartitions {
+		mounts = append(mounts, MountedPartitionInfo{
+			ID:          mounted.ID,
+			Name:        mounted.Name,
+			Path:        mounted.Path,
+			Letter:      string(mounted.Letter),
+			Correlative: mounted.DiskIndex,
+			DiskIndex:   mounted.DiskIndex,
+			Type:        string(mounted.Partition.Type),
+			Start:       mounted.Partition.Start,
+			Size:        mounted.Partition.Size,
+		})
+	}
+
+	return mounts
 }
 
 func resetMountsForTest() { // esta funcion limpia montajes para pruebas automaticas

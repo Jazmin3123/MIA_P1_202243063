@@ -31,6 +31,13 @@ type SesionSistema struct { // esta estructura guarda la sesion activa en memori
 	Montada MountedPartition // aqui guardo la particion donde inicio sesion
 }
 
+type CurrentSessionInfo struct { // esta estructura expone la sesion actual para la API
+	Logged      bool   `json:"logged"`
+	User        string `json:"user,omitempty"`
+	Group       string `json:"group,omitempty"`
+	PartitionID string `json:"partitionID,omitempty"`
+}
+
 var sesionActual SesionSistema // aqui guardo la sesion actual mientras el programa esta abierto
 
 func EjecutarLogin(params map[string]string) error { // esta funcion inicia sesion con usuario, password e id
@@ -197,6 +204,19 @@ func separarRegistroUsers(linea string) []string { // esta funcion limpia los ca
 
 func obtenerSesionActual() (SesionSistema, bool) { // esta funcion devuelve la sesion para futuros comandos
 	return sesionActual, sesionActual.Activa
+}
+
+func GetCurrentSession() interface{} { // esta funcion devuelve la sesion actual para consultas de la API
+	if !sesionActual.Activa {
+		return CurrentSessionInfo{Logged: false}
+	}
+
+	return CurrentSessionInfo{
+		Logged:      true,
+		User:        sesionActual.Usuario.Usuario,
+		Group:       sesionActual.Usuario.Grupo,
+		PartitionID: sesionActual.Montada.ID,
+	}
 }
 
 func limpiarSesionParaPrueba() { // esta funcion limpia la sesion en pruebas automaticas

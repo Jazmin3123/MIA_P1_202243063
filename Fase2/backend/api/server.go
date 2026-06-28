@@ -14,6 +14,28 @@ type MkDiskRequest struct {
 	Path string `json:"path"`
 }
 
+type ExecuteRequest struct {
+	Command string `json:"command"`
+}
+
+type ExecuteResponse struct {
+	OK     bool   `json:"ok"`
+	Output string `json:"output"`
+	Error  string `json:"error"`
+}
+
+type MountsResponse struct {
+	OK     bool        `json:"ok"`
+	Mounts interface{} `json:"mounts"`
+	Error  string      `json:"error,omitempty"`
+}
+
+type SessionResponse struct {
+	OK      bool        `json:"ok"`
+	Session interface{} `json:"session"`
+	Error   string      `json:"error,omitempty"`
+}
+
 type ApiResponse struct {
 	OK        bool   `json:"ok"`
 	Message   string `json:"message,omitempty"`
@@ -24,11 +46,20 @@ type ApiResponse struct {
 
 func StartAPI() error {
 	http.HandleFunc("/mkdisk", handleMkDisk)
+	http.HandleFunc("/execute", handleExecute)
+	http.HandleFunc("/mounts", handleMounts)
+	http.HandleFunc("/session", handleSession)
 	return http.ListenAndServe(":8080", nil)
 }
 
 func handleMkDisk(w http.ResponseWriter, r *http.Request) {
+	setCORSHeaders(w)
 	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -67,7 +98,110 @@ func handleMkDisk(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func writeJSON(w http.ResponseWriter, response ApiResponse) {
+func handleExecute(w http.ResponseWriter, r *http.Request) {
+	setCORSHeaders(w)
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		writeJSON(w, ExecuteResponse{
+			OK:     false,
+			Output: "",
+			Error:  "metodo no permitido, use POST",
+		})
+		return
+	}
+
+	var req ExecuteRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		writeJSON(w, ExecuteResponse{
+			OK:     false,
+			Output: "",
+			Error:  "json invalido",
+		})
+		return
+	}
+
+	if err := comandos.ExecuteLine(req.Command); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		writeJSON(w, ExecuteResponse{
+			OK:     false,
+			Output: "",
+			Error:  err.Error(),
+		})
+		return
+	}
+
+	writeJSON(w, ExecuteResponse{
+		OK:     true,
+		Output: "comando ejecutado",
+		Error:  "",
+	})
+}
+
+func handleMounts(w http.ResponseWriter, r *http.Request) {
+	setCORSHeaders(w)
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		writeJSON(w, MountsResponse{
+			OK:     false,
+			Mounts: []interface{}{},
+			Error:  "metodo no permitido, use GET",
+		})
+		return
+	}
+
+	writeJSON(w, MountsResponse{
+		OK:     true,
+		Mounts: comandos.ListMountedPartitions(),
+	})
+}
+
+func handleSession(w http.ResponseWriter, r *http.Request) {
+	setCORSHeaders(w)
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		writeJSON(w, SessionResponse{
+			OK:      false,
+			Session: map[string]bool{"logged": false},
+			Error:   "metodo no permitido, use GET",
+		})
+		return
+	}
+
+	writeJSON(w, SessionResponse{
+		OK:      true,
+		Session: comandos.GetCurrentSession(),
+	})
+}
+
+func setCORSHeaders(w http.ResponseWriter) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+}
+
+func writeJSON(w http.ResponseWriter, response any) {
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}

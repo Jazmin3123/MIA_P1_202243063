@@ -55,19 +55,30 @@ func processLine(line string, fromScript bool) bool { // esta funcion procesa un
 		fmt.Println(line) // cuando viene de script, muestro el comando que se esta ejecutando
 	}
 
+	if err := ExecuteLine(line); err != nil {
+		fmt.Printf("Error: %v\n", err)
+	}
+
+	return false
+}
+
+func ExecuteLine(line string) error { // esta funcion ejecuta una linea reutilizando parser, validador y dispatcher
+	line = strings.TrimSpace(line) // limpio espacios para aceptar entradas de CLI, scripts o API
+
+	if line == "" || strings.HasPrefix(line, "#") {
+		return nil // lineas vacias y comentarios no ejecutan nada
+	}
+
 	cmd, err := utils.ParseCommand(line) // convierto el texto en una estructura del comando
 	if err != nil {
-		fmt.Printf("Error: %v\n", err)
-		return false
+		return err
 	}
 
 	if err := utils.ValidateCommand(cmd); err != nil { // reviso que el comando exista y tenga parametros correctos
-		fmt.Printf("Error: %v\n", err)
-		return false
+		return err
 	}
 
-	ExecuteCommand(cmd) // mando el comando al despachador para ejecutarlo
-	return false
+	return ExecuteCommandResult(cmd) // mando el comando al despachador para ejecutarlo
 }
 
 func runScript(path string) error { // esta funcion ejecuta linea por linea un archivo .smia

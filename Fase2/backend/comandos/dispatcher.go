@@ -6,129 +6,84 @@ import (
 	"MIA_P1_202243063/utils" // uso utils para recibir la estructura Command
 )
 
-func ExecuteCommand(cmd utils.Command) { // esta funcion decide que hacer con el comando ya validado
+func ExecuteCommand(cmd utils.Command) { // esta funcion decide que hacer con el comando ya validado para la CLI
+	if err := ExecuteCommandResult(cmd); err != nil {
+		fmt.Printf("Error: %v\n", err)
+	}
+}
+
+func ExecuteCommandResult(cmd utils.Command) error { // esta funcion ejecuta comandos y devuelve errores para reutilizar en API
 	if cmd.Name == "execute" {
-		if err := runScript(cmd.Params["path"]); err != nil { // execute carga y procesa un archivo .smia
-			fmt.Printf("Error: %v\n", err)
-		}
-		return
+		return runScript(cmd.Params["path"]) // execute carga y procesa un archivo .smia
 	}
 
 	if cmd.Name == "mkdisk" {
-		if err := ExecuteMKDisk(cmd.Params); err != nil { // ejecuto la creacion real del disco
-			fmt.Printf("Error: %v\n", err)
-		}
-		return
+		return ExecuteMKDisk(cmd.Params) // ejecuto la creacion real del disco
 	}
 
 	if cmd.Name == "rmdisk" {
-		if err := ExecuteRMDisk(cmd.Params); err != nil { // ejecuto la eliminacion real del disco
-			fmt.Printf("Error: %v\n", err)
-		}
-		return
+		return ExecuteRMDisk(cmd.Params) // ejecuto la eliminacion real del disco
 	}
 
 	if cmd.Name == "fdisk" {
-		if err := ExecuteFDisk(cmd.Params); err != nil { // ejecuto la creacion real de particiones
-			fmt.Printf("Error: %v\n", err)
-		}
-		return
+		return ExecuteFDisk(cmd.Params) // ejecuto la creacion real de particiones
 	}
 
 	if cmd.Name == "mount" {
-		if err := ExecuteMount(cmd.Params); err != nil { // ejecuto el montaje en memoria de la particion
-			fmt.Printf("Error: %v\n", err)
-		}
-		return
+		return ExecuteMount(cmd.Params) // ejecuto el montaje en memoria de la particion
 	}
 
 	if cmd.Name == "mkfs" {
-		if err := ExecuteMKFS(cmd.Params); err != nil { // ejecuto el formateo ext2 de la particion montada
-			fmt.Printf("Error: %v\n", err)
-		}
-		return
+		return ExecuteMKFS(cmd.Params) // ejecuto el formateo ext2 de la particion montada
 	}
 
 	if cmd.Name == "login" {
-		if err := EjecutarLogin(cmd.Params); err != nil { // ejecuto el inicio de sesion sobre una particion montada
-			fmt.Printf("Error: %v\n", err)
-		}
-		return
+		return EjecutarLogin(cmd.Params) // ejecuto el inicio de sesion sobre una particion montada
 	}
 
 	if cmd.Name == "logout" {
-		if err := EjecutarLogout(); err != nil { // ejecuto el cierre de la sesion actual
-			fmt.Printf("Error: %v\n", err)
-		}
-		return
+		return EjecutarLogout() // ejecuto el cierre de la sesion actual
 	}
 
 	if cmd.Name == "mkgrp" {
-		if err := EjecutarMKGRP(cmd.Params); err != nil { // ejecuto la creacion de grupos en users.txt
-			fmt.Printf("Error: %v\n", err)
-		}
-		return
+		return EjecutarMKGRP(cmd.Params) // ejecuto la creacion de grupos en users.txt
 	}
 
 	if cmd.Name == "rmgrp" {
-		if err := EjecutarRMGRP(cmd.Params); err != nil { // ejecuto la eliminacion logica de grupos
-			fmt.Printf("Error: %v\n", err)
-		}
-		return
+		return EjecutarRMGRP(cmd.Params) // ejecuto la eliminacion logica de grupos
 	}
 
 	if cmd.Name == "mkusr" {
-		if err := EjecutarMKUSR(cmd.Params); err != nil { // ejecuto la creacion de usuarios en users.txt
-			fmt.Printf("Error: %v\n", err)
-		}
-		return
+		return EjecutarMKUSR(cmd.Params) // ejecuto la creacion de usuarios en users.txt
 	}
 
 	if cmd.Name == "rmusr" {
-		if err := EjecutarRMUSR(cmd.Params); err != nil { // ejecuto la eliminacion logica de usuarios
-			fmt.Printf("Error: %v\n", err)
-		}
-		return
+		return EjecutarRMUSR(cmd.Params) // ejecuto la eliminacion logica de usuarios
 	}
 
 	if cmd.Name == "chgrp" {
-		if err := EjecutarCHGRP(cmd.Params); err != nil { // ejecuto el cambio de grupo de un usuario
-			fmt.Printf("Error: %v\n", err)
-		}
-		return
+		return EjecutarCHGRP(cmd.Params) // ejecuto el cambio de grupo de un usuario
 	}
 
 	if cmd.Name == "pause" {
 		EjecutarPause() // detengo la ejecucion hasta presionar enter
-		return
+		return nil
 	}
 
 	if cmd.Name == "mkdir" {
-		if err := EjecutarMKDIR(cmd.Params, cmd.Flags); err != nil { // ejecuto la creacion de carpetas dentro de ext2
-			fmt.Printf("Error: %v\n", err)
-		}
-		return
+		return EjecutarMKDIR(cmd.Params, cmd.Flags) // ejecuto la creacion de carpetas dentro de ext2
 	}
 
 	if cmd.Name == "mkfile" {
-		if err := EjecutarMKFILE(cmd.Params, cmd.Flags); err != nil { // ejecuto la creacion de archivos dentro de ext2
-			fmt.Printf("Error: %v\n", err)
-		}
-		return
+		return EjecutarMKFILE(cmd.Params, cmd.Flags) // ejecuto la creacion de archivos dentro de ext2
 	}
 
 	if cmd.Name == "cat" {
-		if err := EjecutarCAT(cmd.Params); err != nil { // ejecuto la lectura de archivos dentro de ext2
-			fmt.Printf("Error: %v\n", err)
-		}
-		return
+		return EjecutarCAT(cmd.Params) // ejecuto la lectura de archivos dentro de ext2
 	}
 
 	if cmd.Name == "rep" {
-		if err := EjecutarREP(cmd.Params); err != nil { // ejecuto la generacion de reportes
-			fmt.Printf("Error: %v\n", err)
-		}
-		return
+		return EjecutarREP(cmd.Params) // ejecuto la generacion de reportes
 	}
 
 	fmt.Printf("Comando reconocido: %s\n", cmd.Name) // por ahora solo confirmo que el comando fue valido
@@ -146,6 +101,8 @@ func ExecuteCommand(cmd utils.Command) { // esta funcion decide que hacer con el
 			fmt.Printf("  -%s\n", key)
 		}
 	}
+
+	return nil
 }
 
 func EjecutarPause() { // esta funcion implementa el comando pause del pdf actualizado
