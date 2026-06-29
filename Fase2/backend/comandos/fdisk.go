@@ -16,22 +16,7 @@ type partitionSpace struct { // esta estructura me ayuda a calcular espacios lib
 	Size  int32 // aqui guardo cuantos bytes libres hay
 }
 
-func ExecuteFDisk(params map[string]string) error { // esta funcion ejecuta el comando fdisk para crear particiones
-	sizeBytes, err := parseFDiskSize(params) // convierto size y unit a bytes reales
-	if err != nil {
-		return err
-	}
-
-	partType, err := parsePartitionType(params["type"]) // valido si sera primaria, extendida o logica
-	if err != nil {
-		return err
-	}
-
-	partFit, err := parsePartitionFit(params["fit"]) // valido el ajuste de la particion
-	if err != nil {
-		return err
-	}
-
+func ExecuteFDisk(params map[string]string) error { // esta funcion ejecuta el comando fdisk para crear, eliminar o ajustar particiones
 	name := params["name"] // obtengo el nombre de la particion
 	if len(name) > 16 {
 		return fmt.Errorf("name no debe superar 16 caracteres")
@@ -45,6 +30,29 @@ func ExecuteFDisk(params map[string]string) error { // esta funcion ejecuta el c
 
 	var mbr estructuras.MBR
 	if err := utils.ReadStructAt(file, 0, &mbr); err != nil {
+		return err
+	}
+
+	if deleteMode := params["delete"]; deleteMode != "" {
+		return deletePartition(file, &mbr, name, deleteMode)
+	}
+
+	if addValue := params["add"]; addValue != "" {
+		return resizePartition(file, &mbr, name, addValue, params["unit"])
+	}
+
+	sizeBytes, err := parseFDiskSize(params) // convierto size y unit a bytes reales
+	if err != nil {
+		return err
+	}
+
+	partType, err := parsePartitionType(params["type"]) // valido si sera primaria, extendida o logica
+	if err != nil {
+		return err
+	}
+
+	partFit, err := parsePartitionFit(params["fit"]) // valido el ajuste de la particion
+	if err != nil {
 		return err
 	}
 
@@ -70,6 +78,38 @@ func parseFDiskSize(params map[string]string) (int32, error) { // esta funcion v
 	}
 
 	unit := strings.ToUpper(params["unit"]) // si no viene unit, se usa kilobytes
+	if unit == "" {
+		unit = "K"
+	}
+
+	switch unit {
+	case "B":
+	case "K":
+		size *= 1024
+	case "M":
+		size *= 1024 * 1024
+	default:
+		return 0, fmt.Errorf("unit debe ser B, K o M")
+	}
+
+	return int32(size), nil
+}
+
+func parseFDiskDelta(value string, unitValue string) (int32, error) { // esta funcion valida -add con signo y unidad
+	if strings.TrimSpace(value) == "" {
+		return 0, fmt.Errorf("add debe ser un numero entero diferente de cero")
+	}
+
+	size, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, fmt.Errorf("add debe ser un numero entero")
+	}
+
+	if size == 0 {
+		return 0, fmt.Errorf("add debe ser diferente de cero")
+	}
+
+	unit := strings.ToUpper(unitValue)
 	if unit == "" {
 		unit = "K"
 	}
@@ -367,6 +407,250 @@ func ensureUniqueLogicalName(file *os.File, mbr estructuras.MBR, name string) er
 		}
 
 		currentPosition = ebr.Next
+	}
+
+	return nil
+}
+
+func deletePartition(file *os.File, mbr *estructuras.MBR, name string, mode string) error { // esta funcion elimina particiones primarias, extendidas o logicas
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	if mode != "fast" && mode != "full" {
+		return fmt.Errorf("delete debe ser fast o full")
+	}
+
+	if index := findPrimaryPartitionIndex(*mbr, name); index != -1 {
+		partition := mbr.Partitions[index]
+		if mode == "full" {
+			if err := zeroDiskRange(file, partition.Start, partition.Size); err != nil {
+				return err
+			}
+		}
+
+		mbr.Partitions[index] = estructuras.Partition{}
+		if err := utils.WriteStructAt(file, 0, mbr); err != nil {
+			return err
+		}
+
+		if partition.Type == 'E' {
+			fmt.Printf("particion extendida %s eliminada correctamente con delete=%s; sus logicas quedaron eliminadas\n", name, mode)
+			return nil
+		}
+
+		fmt.Printf("particion %s eliminada correctamente con delete=%s\n", name, mode)
+		return nil
+	}
+
+	logicalPosition, logical, found, err := findLogicalPartitionByExactName(file, *mbr, name)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return fmt.Errorf("no existe una particion con nombre %s", name)
+	}
+
+	if mode == "full" {
+		ebrSize := utils.StructSize(estructuras.EBR{})
+		if err := zeroDiskRange(file, logical.Start+ebrSize, logical.Size); err != nil {
+			return err
+		}
+	}
+
+	logical.Mount = 0
+	logical.Fit = 0
+	logical.Size = 0
+	logical.Name = [16]byte{}
+	if err := utils.WriteStructAt(file, int64(logicalPosition), &logical); err != nil {
+		return err
+	}
+
+	fmt.Printf("particion logica %s eliminada correctamente con delete=%s\n", name, mode)
+	return nil
+}
+
+func resizePartition(file *os.File, mbr *estructuras.MBR, name string, addValue string, unit string) error { // esta funcion aumenta o reduce una particion existente
+	delta, err := parseFDiskDelta(addValue, unit)
+	if err != nil {
+		return err
+	}
+
+	if index := findPrimaryPartitionIndex(*mbr, name); index != -1 {
+		return resizePrimaryPartition(file, mbr, index, delta)
+	}
+
+	logicalPosition, logical, found, err := findLogicalPartitionByExactName(file, *mbr, name)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return fmt.Errorf("no existe una particion con nombre %s", name)
+	}
+
+	return resizeLogicalPartition(file, *mbr, logicalPosition, logical, delta)
+}
+
+func resizePrimaryPartition(file *os.File, mbr *estructuras.MBR, index int, delta int32) error { // esta funcion ajusta una particion del mbr
+	partition := mbr.Partitions[index]
+	newSize := partition.Size + delta
+	if newSize <= 0 {
+		return fmt.Errorf("add reduce demasiado la particion %s: el tamano resultante debe ser mayor que cero", utils.BytesToString(partition.Name[:]))
+	}
+
+	if delta > 0 {
+		freeAfter := freeSpaceAfterPrimary(*mbr, index)
+		if freeAfter < delta {
+			return fmt.Errorf("no hay espacio libre suficiente despues de la particion %s: disponible %d bytes, requerido %d bytes", utils.BytesToString(partition.Name[:]), freeAfter, delta)
+		}
+	}
+
+	if partition.Type == 'E' && delta < 0 {
+		if err := validateExtendedShrink(file, partition, newSize); err != nil {
+			return err
+		}
+	}
+
+	mbr.Partitions[index].Size = newSize
+	if err := utils.WriteStructAt(file, 0, mbr); err != nil {
+		return err
+	}
+
+	fmt.Printf("particion %s ajustada correctamente: nuevo tamano %d bytes\n", utils.BytesToString(partition.Name[:]), newSize)
+	return nil
+}
+
+func resizeLogicalPartition(file *os.File, mbr estructuras.MBR, position int32, logical estructuras.EBR, delta int32) error { // esta funcion ajusta una particion logica
+	newSize := logical.Size + delta
+	name := utils.BytesToString(logical.Name[:])
+	if newSize <= 0 {
+		return fmt.Errorf("add reduce demasiado la particion logica %s: el tamano resultante debe ser mayor que cero", name)
+	}
+
+	if delta > 0 {
+		freeAfter, err := freeSpaceAfterLogical(mbr, logical)
+		if err != nil {
+			return err
+		}
+		if freeAfter < delta {
+			return fmt.Errorf("no hay espacio libre suficiente despues de la particion logica %s: disponible %d bytes, requerido %d bytes", name, freeAfter, delta)
+		}
+	}
+
+	logical.Size = newSize
+	if err := utils.WriteStructAt(file, int64(position), &logical); err != nil {
+		return err
+	}
+
+	fmt.Printf("particion logica %s ajustada correctamente: nuevo tamano %d bytes\n", name, newSize)
+	return nil
+}
+
+func findPrimaryPartitionIndex(mbr estructuras.MBR, name string) int { // esta funcion busca primarias o extendidas por nombre
+	for index, partition := range mbr.Partitions {
+		if partition.Size > 0 && utils.BytesToString(partition.Name[:]) == name {
+			return index
+		}
+	}
+
+	return -1
+}
+
+func findLogicalPartitionByExactName(file *os.File, mbr estructuras.MBR, name string) (int32, estructuras.EBR, bool, error) { // esta funcion busca una logica y devuelve su ebr
+	extended, found := findExtendedPartition(mbr)
+	if !found {
+		return 0, estructuras.EBR{}, false, nil
+	}
+
+	currentPosition := extended.Start
+	for currentPosition != -1 {
+		var ebr estructuras.EBR
+		if err := utils.ReadStructAt(file, int64(currentPosition), &ebr); err != nil {
+			return 0, estructuras.EBR{}, false, err
+		}
+
+		if ebr.Size > 0 && utils.BytesToString(ebr.Name[:]) == name {
+			return currentPosition, ebr, true, nil
+		}
+
+		currentPosition = ebr.Next
+	}
+
+	return 0, estructuras.EBR{}, false, nil
+}
+
+func freeSpaceAfterPrimary(mbr estructuras.MBR, index int) int32 { // esta funcion calcula espacio libre contiguo despues de una particion del mbr
+	partition := mbr.Partitions[index]
+	end := partition.Start + partition.Size
+	limit := mbr.Size
+
+	for otherIndex, other := range mbr.Partitions {
+		if otherIndex == index || other.Size == 0 {
+			continue
+		}
+
+		if other.Start >= end && other.Start < limit {
+			limit = other.Start
+		}
+	}
+
+	return limit - end
+}
+
+func freeSpaceAfterLogical(mbr estructuras.MBR, logical estructuras.EBR) (int32, error) { // esta funcion calcula espacio libre contiguo despues de una logica
+	extended, found := findExtendedPartition(mbr)
+	if !found {
+		return 0, fmt.Errorf("no existe una particion extendida")
+	}
+
+	ebrSize := utils.StructSize(estructuras.EBR{})
+	end := logical.Start + ebrSize + logical.Size
+	if logical.Next != -1 {
+		return logical.Next - end, nil
+	}
+
+	return extended.Start + extended.Size - end, nil
+}
+
+func validateExtendedShrink(file *os.File, extended estructuras.Partition, newSize int32) error { // esta funcion evita cortar logicas al reducir una extendida
+	newEnd := extended.Start + newSize
+	currentPosition := extended.Start
+	ebrSize := utils.StructSize(estructuras.EBR{})
+
+	for currentPosition != -1 {
+		var ebr estructuras.EBR
+		if err := utils.ReadStructAt(file, int64(currentPosition), &ebr); err != nil {
+			return err
+		}
+
+		if ebr.Size > 0 && ebr.Start+ebrSize+ebr.Size > newEnd {
+			return fmt.Errorf("no se puede reducir la extendida: la logica %s quedaria fuera del nuevo tamano", utils.BytesToString(ebr.Name[:]))
+		}
+
+		currentPosition = ebr.Next
+	}
+
+	return nil
+}
+
+func zeroDiskRange(file *os.File, start int32, size int32) error { // esta funcion rellena un rango del disco con ceros
+	if size <= 0 {
+		return nil
+	}
+
+	buffer := make([]byte, zeroBufferSize)
+	remaining := int64(size)
+	position := int64(start)
+
+	for remaining > 0 {
+		chunkSize := int64(len(buffer))
+		if remaining < chunkSize {
+			chunkSize = remaining
+		}
+
+		if _, err := file.WriteAt(buffer[:chunkSize], position); err != nil {
+			return fmt.Errorf("no se pudo limpiar el espacio de la particion: %w", err)
+		}
+
+		position += chunkSize
+		remaining -= chunkSize
 	}
 
 	return nil

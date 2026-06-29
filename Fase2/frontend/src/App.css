@@ -60,6 +60,8 @@ h3 {
 
 .console-panel,
 .mounts-panel,
+.login-panel,
+.reports-panel,
 .explorer-panel {
   padding: 18px;
 }
@@ -245,6 +247,104 @@ button:disabled {
   text-align: center;
 }
 
+.login-panel {
+  margin-bottom: 18px;
+}
+
+.reports-panel {
+  margin-bottom: 18px;
+}
+
+.login-form {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) minmax(160px, 1fr) minmax(160px, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+}
+
+.login-form label,
+.reports-form label {
+  display: grid;
+  gap: 6px;
+  color: #43584f;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.login-form input,
+.reports-form select {
+  min-height: 38px;
+  width: 100%;
+  border: 1px solid #cbd7d0;
+  border-radius: 8px;
+  padding: 0 10px;
+  color: #17221d;
+  background: #fbfcfb;
+  outline: none;
+}
+
+.login-form input:focus,
+.reports-form select:focus {
+  border-color: #4e7d66;
+  box-shadow: 0 0 0 3px rgba(78, 125, 102, 0.16);
+}
+
+.reports-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.7fr) minmax(220px, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+}
+
+.report-preview {
+  margin-top: 16px;
+}
+
+.report-image-frame {
+  overflow: auto;
+  min-height: 320px;
+  max-height: 620px;
+  border: 1px solid #d6e0da;
+  border-radius: 8px;
+  background: #fbfcfb;
+}
+
+.report-image-frame img {
+  display: block;
+  max-width: 100%;
+  min-width: min(720px, 100%);
+  height: auto;
+  margin: 0 auto;
+}
+
+.report-text {
+  min-height: 220px;
+}
+
+.session-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid #cfe0d6;
+  border-radius: 8px;
+  padding: 14px;
+  color: #1d2b25;
+  background: #f2f8f4;
+}
+
+.session-card > div {
+  display: grid;
+  gap: 4px;
+}
+
+.session-label {
+  color: #5c6f66;
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
 .explorer-heading {
   align-items: center;
 }
@@ -359,6 +459,17 @@ button:disabled {
   .workspace-grid,
   .explorer-grid {
     grid-template-columns: 1fr;
+  }
+
+  .login-form,
+  .reports-form,
+  .session-card {
+    grid-template-columns: 1fr;
+  }
+
+  .session-card {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .path-controls {

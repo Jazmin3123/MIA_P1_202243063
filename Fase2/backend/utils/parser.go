@@ -13,24 +13,29 @@ type Command struct { // esta estructura representa un comando despues de leerlo
 }
 
 var commandParams = map[string]map[string]bool{ // aqui defino que parametros acepta cada comando del enunciado
-	"mkdisk":  {"size": true, "fit": true, "unit": true, "path": true},                             // parametros validos para crear discos
-	"rmdisk":  {"path": true},                                                                      // parametro valido para eliminar discos
-	"fdisk":   {"size": true, "unit": true, "path": true, "type": true, "fit": true, "name": true}, // parametros validos para particiones
-	"mount":   {"path": true, "name": true},                                                        // parametros validos para montar particiones
-	"mkfs":    {"id": true, "type": true},                                                          // parametros validos para formatear
-	"cat":     {},                                                                                  // cat se valida aparte porque usa file1, file2, etc.
-	"login":   {"user": true, "pass": true, "id": true},                                            // parametros validos para iniciar sesion
-	"logout":  {},                                                                                  // logout no recibe parametros
-	"mkgrp":   {"name": true},                                                                      // parametro valido para crear grupo
-	"rmgrp":   {"name": true},                                                                      // parametro valido para eliminar grupo
-	"mkusr":   {"user": true, "pass": true, "grp": true},                                           // parametros validos para crear usuario
-	"rmusr":   {"user": true},                                                                      // parametro valido para eliminar usuario
-	"chgrp":   {"user": true, "grp": true},                                                         // parametros validos para cambiar grupo de usuario
-	"mkfile":  {"path": true, "r": true, "size": true, "cont": true},                               // parametros validos para crear archivo
-	"mkdir":   {"path": true, "p": true},                                                           // parametros validos para crear carpeta
-	"rep":     {"name": true, "path": true, "id": true, "path_file_ls": true},                      // parametros validos para reportes
-	"execute": {"path": true},                                                                      // parametro valido para ejecutar scripts
-	"pause":   {},                                                                                  // pause no recibe parametros
+	"mkdisk":  {"size": true, "fit": true, "unit": true, "path": true},                                                          // parametros validos para crear discos
+	"rmdisk":  {"path": true},                                                                                                   // parametro valido para eliminar discos
+	"fdisk":   {"size": true, "unit": true, "path": true, "type": true, "fit": true, "name": true, "add": true, "delete": true}, // parametros validos para particiones
+	"mount":   {"path": true, "name": true},                                                                                     // parametros validos para montar particiones
+	"mkfs":    {"id": true, "type": true},                                                                                       // parametros validos para formatear
+	"cat":     {},                                                                                                               // cat se valida aparte porque usa file1, file2, etc.
+	"login":   {"user": true, "pass": true, "id": true},                                                                         // parametros validos para iniciar sesion
+	"logout":  {},                                                                                                               // logout no recibe parametros
+	"mkgrp":   {"name": true},                                                                                                   // parametro valido para crear grupo
+	"rmgrp":   {"name": true},                                                                                                   // parametro valido para eliminar grupo
+	"mkusr":   {"user": true, "pass": true, "grp": true},                                                                        // parametros validos para crear usuario
+	"rmusr":   {"user": true},                                                                                                   // parametro valido para eliminar usuario
+	"chgrp":   {"user": true, "grp": true},                                                                                      // parametros validos para cambiar grupo de usuario
+	"mkfile":  {"path": true, "r": true, "size": true, "cont": true},                                                            // parametros validos para crear archivo
+	"mkdir":   {"path": true, "p": true},                                                                                        // parametros validos para crear carpeta
+	"rename":  {"path": true, "name": true},                                                                                     // parametros validos para renombrar archivos o carpetas
+	"edit":    {"path": true, "contenido": true},                                                                                // parametros validos para editar archivos
+	"remove":  {"path": true},                                                                                                   // parametros validos para eliminar archivos o carpetas
+	"copy":    {"path": true, "destino": true},                                                                                  // parametros validos para copiar archivos o carpetas
+	"move":    {"path": true, "destino": true},                                                                                  // parametros validos para mover archivos o carpetas
+	"rep":     {"name": true, "path": true, "id": true, "path_file_ls": true},                                                   // parametros validos para reportes
+	"execute": {"path": true},                                                                                                   // parametro valido para ejecutar scripts
+	"pause":   {},                                                                                                               // pause no recibe parametros
 }
 
 var requiredParams = map[string][]string{ // aqui indico que parametros son obligatorios para validar antes de ejecutar
@@ -47,6 +52,11 @@ var requiredParams = map[string][]string{ // aqui indico que parametros son obli
 	"chgrp":   {"user", "grp"},         // chgrp necesita usuario y grupo nuevo
 	"mkfile":  {"path"},                // mkfile necesita ruta del archivo
 	"mkdir":   {"path"},                // mkdir necesita ruta de carpeta
+	"rename":  {"path", "name"},        // rename necesita ruta y nombre nuevo
+	"edit":    {"path", "contenido"},   // edit necesita ruta ext2 y archivo de contenido
+	"remove":  {"path"},                // remove necesita ruta a eliminar
+	"copy":    {"path", "destino"},     // copy necesita origen y carpeta destino
+	"move":    {"path", "destino"},     // move necesita origen y carpeta destino
 	"rep":     {"name", "path", "id"},  // rep necesita nombre, ruta e id
 	"execute": {"path"},                // execute necesita ruta del script
 }
@@ -240,9 +250,24 @@ func validateCatFiles(cmd Command) error { // esta funcion valida que cat tenga 
 	return errors.New("cat requiere al menos un parametro -fileN")
 }
 
-func validateFDiskMode(cmd Command) error { // esta funcion valida fdisk como creacion de particion en esta etapa
+func validateFDiskMode(cmd Command) error { // esta funcion valida el modo de fdisk: crear, agregar/reducir o eliminar
+	_, hasDelete := cmd.Params["delete"]
+	_, hasAdd := cmd.Params["add"]
+
+	if hasDelete && hasAdd {
+		return errors.New("fdisk no puede usar -delete y -add al mismo tiempo")
+	}
+
+	if hasDelete {
+		return nil
+	}
+
+	if hasAdd {
+		return nil
+	}
+
 	if _, hasSize := cmd.Params["size"]; !hasSize {
-		return errors.New("falta parametro obligatorio -size en fdisk para crear particiones") // para esta etapa fdisk se valida como creacion
+		return errors.New("falta parametro obligatorio -size en fdisk para crear particiones")
 	}
 
 	return nil

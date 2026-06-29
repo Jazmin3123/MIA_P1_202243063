@@ -82,6 +82,26 @@ func ExecuteCommandResult(cmd utils.Command) error { // esta funcion ejecuta com
 		return EjecutarCAT(cmd.Params) // ejecuto la lectura de archivos dentro de ext2
 	}
 
+	if cmd.Name == "rename" {
+		return EjecutarRENAME(cmd.Params) // ejecuto el renombrado de archivos o carpetas
+	}
+
+	if cmd.Name == "edit" {
+		return EjecutarEDIT(cmd.Params) // ejecuto la edicion de archivos dentro de ext2
+	}
+
+	if cmd.Name == "remove" {
+		return EjecutarREMOVE(cmd.Params) // ejecuto la eliminacion recursiva dentro de ext2
+	}
+
+	if cmd.Name == "copy" {
+		return EjecutarCOPY(cmd.Params) // ejecuto la copia recursiva dentro de ext2
+	}
+
+	if cmd.Name == "move" {
+		return EjecutarMOVE(cmd.Params) // ejecuto el movimiento dentro de ext2
+	}
+
 	if cmd.Name == "rep" {
 		return EjecutarREP(cmd.Params) // ejecuto la generacion de reportes
 	}

@@ -1,0 +1,57 @@
+digraph G {
+node [shape=plaintext];
+inode0 [label=<
+<table border='1' cellborder='1' cellspacing='0'>
+<tr><td colspan='2'><b>INODO 0</b></td></tr>
+<tr><td>i_uid</td><td>1</td></tr>
+<tr><td>i_gid</td><td>1</td></tr>
+<tr><td>i_s</td><td>0</td></tr>
+<tr><td>i_atime</td><td>1782635383</td></tr>
+<tr><td>i_ctime</td><td>1782635383</td></tr>
+<tr><td>i_mtime</td><td>1782635383</td></tr>
+<tr><td>i_block_0</td><td>0</td></tr>
+<tr><td>i_block_1</td><td>-1</td></tr>
+<tr><td>i_block_2</td><td>-1</td></tr>
+<tr><td>i_block_3</td><td>-1</td></tr>
+<tr><td>i_block_4</td><td>-1</td></tr>
+<tr><td>i_block_5</td><td>-1</td></tr>
+<tr><td>i_block_6</td><td>-1</td></tr>
+<tr><td>i_block_7</td><td>-1</td></tr>
+<tr><td>i_block_8</td><td>-1</td></tr>
+<tr><td>i_block_9</td><td>-1</td></tr>
+<tr><td>i_block_10</td><td>-1</td></tr>
+<tr><td>i_block_11</td><td>-1</td></tr>
+<tr><td>i_block_12</td><td>-1</td></tr>
+<tr><td>i_block_13</td><td>-1</td></tr>
+<tr><td>i_block_14</td><td>-1</td></tr>
+<tr><td>i_type</td><td>0</td></tr>
+<tr><td>i_perm</td><td>777</td></tr>
+</table>>];
+inode1 [label=<
+<table border='1' cellborder='1' cellspacing='0'>
+<tr><td colspan='2'><b>INODO 1</b></td></tr>
+<tr><td>i_uid</td><td>1</td></tr>
+<tr><td>i_gid</td><td>1</td></tr>
+<tr><td>i_s</td><td>75</td></tr>
+<tr><td>i_atime</td><td>1782635383</td></tr>
+<tr><td>i_ctime</td><td>1782635383</td></tr>
+<tr><td>i_mtime</td><td>1782635383</td></tr>
+<tr><td>i_block_0</td><td>1</td></tr>
+<tr><td>i_block_1</td><td>-1</td></tr>
+<tr><td>i_block_2</td><td>-1</td></tr>
+<tr><td>i_block_3</td><td>-1</td></tr>
+<tr><td>i_block_4</td><td>-1</td></tr>
+<tr><td>i_block_5</td><td>-1</td></tr>
+<tr><td>i_block_6</td><td>-1</td></tr>
+<tr><td>i_block_7</td><td>-1</td></tr>
+<tr><td>i_block_8</td><td>-1</td></tr>
+<tr><td>i_block_9</td><td>-1</td></tr>
+<tr><td>i_block_10</td><td>-1</td></tr>
+<tr><td>i_block_11</td><td>-1</td></tr>
+<tr><td>i_block_12</td><td>-1</td></tr>
+<tr><td>i_block_13</td><td>-1</td></tr>
+<tr><td>i_block_14</td><td>-1</td></tr>
+<tr><td>i_type</td><td>1</td></tr>
+<tr><td>i_perm</td><td>664</td></tr>
+</table>>];
+}
