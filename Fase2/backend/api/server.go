@@ -3,9 +3,14 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"MIA_P1_202243063/comandos"
 )
+
+const reportsDir = "/tmp/mia_p2_reportes"
 
 type MkDiskRequest struct {
 	Size int    `json:"size"`
@@ -65,6 +70,7 @@ func StartAPI() error {
 	http.HandleFunc("/session", handleSession)
 	http.HandleFunc("/fs/tree", handleFileSystemTree)
 	http.HandleFunc("/fs/file", handleFileSystemFile)
+	http.HandleFunc("/reports/file", handleReportFile)
 	return http.ListenAndServe(":8080", nil)
 }
 
@@ -287,6 +293,67 @@ func handleFileSystemFile(w http.ResponseWriter, r *http.Request) {
 		Path:    path,
 		Content: content,
 	})
+}
+
+func handleReportFile(w http.ResponseWriter, r *http.Request) {
+	setCORSHeaders(w)
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if r.Method != http.MethodGet {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		writeJSON(w, ApiResponse{
+			OK:    false,
+			Error: "metodo no permitido, use GET",
+		})
+		return
+	}
+
+	name := filepath.Base(r.URL.Query().Get("name"))
+	if name == "." || name == "/" || name == "" || strings.Contains(name, "..") {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		writeJSON(w, ApiResponse{
+			OK:    false,
+			Error: "nombre de reporte invalido",
+		})
+		return
+	}
+
+	if err := os.MkdirAll(reportsDir, 0o755); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		writeJSON(w, ApiResponse{
+			OK:    false,
+			Error: "no se pudo preparar la carpeta de reportes",
+		})
+		return
+	}
+
+	reportPath := filepath.Join(reportsDir, name)
+	extension := strings.ToLower(filepath.Ext(name))
+	switch extension {
+	case ".svg":
+		w.Header().Set("Content-Type", "image/svg+xml")
+	case ".png":
+		w.Header().Set("Content-Type", "image/png")
+	case ".txt":
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	default:
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		writeJSON(w, ApiResponse{
+			OK:    false,
+			Error: "tipo de reporte no permitido",
+		})
+		return
+	}
+
+	http.ServeFile(w, r, reportPath)
 }
 
 func setCORSHeaders(w http.ResponseWriter) {

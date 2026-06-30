@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import './App.css'
 
-const API_URL = 'http://52.91.161.35:8080'
-const REPORTS_DIR = '/home/jazmin/MIA_P1_202243063/Fase2/frontend/public/reportes'
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080'
+const REPORTS_DIR = '/tmp/mia_p2_reportes'
 
 const initialCommand = 'mkdisk -size=10 -unit=M -path=/tmp/disco.mia'
 const reportOptions = [
@@ -104,10 +104,11 @@ function App() {
   const [reportMessage, setReportMessage] = useState('')
   const [reportError, setReportError] = useState('')
   const [reportPreview, setReportPreview] = useState(null)
-  const [activeUtilityTab, setActiveUtilityTab] = useState('disks')
+  const [activeUtilityTab, setActiveUtilityTab] = useState('home')
   const [pathHistory, setPathHistory] = useState([])
   const [runningVisualAction, setRunningVisualAction] = useState('')
   const [visualResults, setVisualResults] = useState({})
+  const [toast, setToast] = useState(null)
   const [visualForms, setVisualForms] = useState({
     createDisk: { size: '10', unit: 'M', fit: 'FF', path: '/tmp/disco.mia' },
     deleteDisk: { path: '/tmp/disco.mia' },
@@ -130,6 +131,10 @@ function App() {
     removeEntry: { path: '/home/docs/archivo.txt' },
     copyEntry: { path: '/home/docs/archivo.txt', destino: '/home/copia.txt' },
     moveEntry: { path: '/home/docs/archivo.txt', destino: '/home/movido.txt' },
+    createGroup: { name: 'usuarios' },
+    deleteGroup: { name: 'usuarios' },
+    createUser: { user: 'user1', password: '123', group: 'usuarios' },
+    deleteUser: { user: 'user1' },
   })
 
   const selectedMount = useMemo(
@@ -273,6 +278,19 @@ function App() {
     }
   }, [selectedMountId])
 
+  useEffect(() => {
+    if (!toast) {
+      return undefined
+    }
+
+    const timer = window.setTimeout(() => setToast(null), 4200)
+    return () => window.clearTimeout(timer)
+  }, [toast])
+
+  function notify(type, message) {
+    setToast({ type, message })
+  }
+
   async function executeCommand() {
     setRunningCommand(true)
     setCommandResult('')
@@ -280,11 +298,13 @@ function App() {
 
     try {
       const data = await executeBackendCommand(command)
-      setCommandResult(data.output || 'comando ejecutado')
+      setCommandResult(data.output || 'Comando ejecutado correctamente.')
+      notify('success', 'Comando avanzado ejecutado correctamente.')
       await fetchMounts()
       await fetchSession()
     } catch (error) {
       setCommandError(error.message)
+      notify('error', error.message)
     } finally {
       setRunningCommand(false)
     }
@@ -305,15 +325,22 @@ function App() {
     setRunningVisualAction(actionKey)
     setVisualResults((results) => ({
       ...results,
-      [actionKey]: { command, output: '', error: '' },
+      [actionKey]: { command, output: 'Procesando accion...', error: '', status: 'loading' },
     }))
+    notify('loading', 'Procesando accion...')
 
     try {
-      const data = await executeBackendCommand(command)
+      await executeBackendCommand(command)
       setVisualResults((results) => ({
         ...results,
-        [actionKey]: { command, output: data.output || 'comando ejecutado', error: '' },
+        [actionKey]: {
+          command,
+          output: 'Accion completada correctamente.',
+          error: '',
+          status: 'success',
+        },
       }))
+      notify('success', 'Accion completada correctamente.')
       await fetchMounts()
       await fetchSession()
 
@@ -323,8 +350,9 @@ function App() {
     } catch (error) {
       setVisualResults((results) => ({
         ...results,
-        [actionKey]: { command, output: '', error: error.message },
+        [actionKey]: { command, output: '', error: error.message, status: 'error' },
       }))
+      notify('error', error.message)
       await fetchMounts()
       await fetchSession()
     } finally {
@@ -344,10 +372,12 @@ function App() {
 
     try {
       const data = await executeBackendCommand(loginCommand)
-      setLoginMessage(data.output || 'sesion iniciada')
+      setLoginMessage(data.output || 'Sesion iniciada correctamente.')
+      notify('success', 'Sesion iniciada correctamente.')
       await fetchSession()
     } catch (error) {
       setLoginError(error.message)
+      notify('error', error.message)
       await fetchSession()
     } finally {
       setSubmittingLogin(false)
@@ -361,10 +391,12 @@ function App() {
 
     try {
       const data = await executeBackendCommand('logout')
-      setLoginMessage(data.output || 'sesion cerrada')
+      setLoginMessage(data.output || 'Sesion cerrada correctamente.')
+      notify('success', 'Sesion cerrada correctamente.')
       await fetchSession()
     } catch (error) {
       setLoginError(error.message)
+      notify('error', error.message)
       await fetchSession()
     } finally {
       setSubmittingLogin(false)
@@ -380,9 +412,9 @@ function App() {
 
     const report = reportOptions.find((option) => option.name === reportName) || reportOptions[0]
     const stamp = Date.now()
-    const fileName = `${report.name}_${reportMountId || 'sin_id'}_${stamp}.${report.extension}`
+    const fileName = `reporte_${report.name}_${reportMountId || 'sin_id'}_${stamp}.${report.extension}`
     const outputPath = `${REPORTS_DIR}/${fileName}`
-    const publicUrl = `/reportes/${fileName}?t=${stamp}`
+    const publicUrl = `${API_URL}/reports/file?name=${encodeURIComponent(fileName)}&t=${stamp}`
     const reportCommand = `rep -id=${commandValue(reportMountId)} -name=${report.name} -path=${outputPath}`
 
     try {
@@ -394,14 +426,16 @@ function App() {
           throw new Error('No se pudo cargar el reporte generado')
         }
         const text = await response.text()
-        setReportPreview({ type: 'text', content: text, path: outputPath })
+        setReportPreview({ type: 'text', content: text, name: fileName })
       } else {
-        setReportPreview({ type: 'image', url: publicUrl, path: outputPath })
+        setReportPreview({ type: 'image', url: publicUrl, name: fileName })
       }
 
-      setReportMessage(`Reporte generado: ${outputPath}`)
+      setReportMessage('Reporte generado correctamente.')
+      notify('success', 'Reporte generado correctamente.')
     } catch (error) {
       setReportError(error.message)
+      notify('error', error.message)
     } finally {
       setGeneratingReport(false)
     }
@@ -453,9 +487,17 @@ function App() {
     }
 
     return (
-      <pre className={result.error ? 'result-box error-box' : 'result-box'}>
-        {`$ ${result.command}\n${result.error || result.output}`}
-      </pre>
+      <div
+        className={
+          result.error
+            ? 'message-box error-box'
+            : result.status === 'loading'
+              ? 'message-box loading-box'
+              : 'message-box success-box'
+        }
+      >
+        {result.error || result.output || 'Accion completada correctamente.'}
+      </div>
     )
   }
 
@@ -740,7 +782,7 @@ function App() {
                   updateVisualForm('createFolder', 'recursive', event.target.checked)
                 }
               />
-              <span>Crear padres con -p</span>
+              <span>Crear carpetas padre si faltan</span>
             </label>
           </div>
           <div className="actions-row">{renderActionButton('createFolder', 'Crear carpeta')}</div>
@@ -760,7 +802,7 @@ function App() {
               <textarea
                 value={file.content}
                 onChange={(event) => updateVisualForm('createFile', 'content', event.target.value)}
-                placeholder="Si escribes contenido se usara -cont; si queda vacio se usara -size."
+                placeholder="Si escribes contenido, se usara como texto inicial. Si queda vacio, se creara por tamano."
               />
             </label>
           </div>
@@ -800,7 +842,7 @@ function App() {
           <h2>Editar archivo</h2>
           <div className="form-grid single">
             {renderTextField('editFile', 'path', 'Path EXT2')}
-            {renderTextField('editFile', 'contentPath', 'Archivo SO para -contenido')}
+            {renderTextField('editFile', 'contentPath', 'Archivo del sistema con el nuevo contenido')}
           </div>
           <div className="actions-row">{renderActionButton('editFile', 'Editar')}</div>
           {actionResult('editFile')}
@@ -865,368 +907,598 @@ function App() {
     )
   }
 
+  function renderUsersTab() {
+    const createGroup = visualForms.createGroup
+    const deleteGroup = visualForms.deleteGroup
+    const createUser = visualForms.createUser
+    const deleteUser = visualForms.deleteUser
+
+    return (
+      <div className="stacked-section">
+        <div className="action-grid">
+          <section className="action-card">
+            <h2>Sesion</h2>
+            {session.logged ? (
+              <div className="session-card expanded">
+                <span className="session-label">Sesion activa</span>
+                <strong>{session.user}</strong>
+                <span>{session.group} | {session.partitionID}</span>
+                <button type="button" onClick={submitLogout} disabled={submittingLogin}>
+                  {submittingLogin ? 'Cerrando...' : 'Cerrar sesion'}
+                </button>
+              </div>
+            ) : (
+              <form className="login-form" onSubmit={submitLogin}>
+                <label>
+                  <span>ID particion</span>
+                  <input
+                    value={loginPartitionId}
+                    onChange={(event) => setLoginPartitionId(event.target.value)}
+                    placeholder="631A"
+                  />
+                </label>
+                <label>
+                  <span>Usuario</span>
+                  <input
+                    value={loginUser}
+                    onChange={(event) => setLoginUser(event.target.value)}
+                    placeholder="root"
+                  />
+                </label>
+                <label>
+                  <span>Contrasena</span>
+                  <input
+                    type="password"
+                    value={loginPassword}
+                    onChange={(event) => setLoginPassword(event.target.value)}
+                    placeholder="123"
+                  />
+                </label>
+                <div className="actions-row">
+                  <button type="submit" disabled={submittingLogin}>
+                    {submittingLogin ? 'Ingresando...' : 'Iniciar sesion'}
+                  </button>
+                </div>
+              </form>
+            )}
+            {(loginMessage || loginError) && (
+              <div className={loginError ? 'message-box error-box' : 'message-box success-box'}>
+                {loginError || loginMessage}
+              </div>
+            )}
+          </section>
+
+          <form
+            className="action-card"
+            onSubmit={(event) =>
+              executeVisualAction(
+                event,
+                'createGroup',
+                `mkgrp -name=${commandValue(createGroup.name)}`,
+              )
+            }
+          >
+            <h2>Crear grupo</h2>
+            <div className="form-grid single">
+              {renderTextField('createGroup', 'name', 'Nombre del grupo')}
+            </div>
+            <div className="actions-row">{renderActionButton('createGroup', 'Crear grupo')}</div>
+            {actionResult('createGroup')}
+          </form>
+
+          <form
+            className="action-card"
+            onSubmit={(event) =>
+              executeVisualAction(
+                event,
+                'deleteGroup',
+                `rmgrp -name=${commandValue(deleteGroup.name)}`,
+              )
+            }
+          >
+            <h2>Eliminar grupo</h2>
+            <div className="form-grid single">
+              {renderTextField('deleteGroup', 'name', 'Nombre del grupo')}
+            </div>
+            <div className="actions-row">{renderActionButton('deleteGroup', 'Eliminar grupo')}</div>
+            {actionResult('deleteGroup')}
+          </form>
+
+          <form
+            className="action-card wide"
+            onSubmit={(event) =>
+              executeVisualAction(
+                event,
+                'createUser',
+                `mkusr -user=${commandValue(createUser.user)} -pass=${commandValue(
+                  createUser.password,
+                )} -grp=${commandValue(createUser.group)}`,
+              )
+            }
+          >
+            <h2>Crear usuario</h2>
+            <div className="form-grid">
+              {renderTextField('createUser', 'user', 'Usuario')}
+              {renderTextField('createUser', 'password', 'Contrasena', { type: 'password' })}
+              {renderTextField('createUser', 'group', 'Grupo')}
+            </div>
+            <div className="actions-row">{renderActionButton('createUser', 'Crear usuario')}</div>
+            {actionResult('createUser')}
+          </form>
+
+          <form
+            className="action-card"
+            onSubmit={(event) =>
+              executeVisualAction(
+                event,
+                'deleteUser',
+                `rmusr -user=${commandValue(deleteUser.user)}`,
+              )
+            }
+          >
+            <h2>Eliminar usuario</h2>
+            <div className="form-grid single">
+              {renderTextField('deleteUser', 'user', 'Usuario')}
+            </div>
+            <div className="actions-row">{renderActionButton('deleteUser', 'Eliminar usuario')}</div>
+            {actionResult('deleteUser')}
+          </form>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <main className="app-shell">
+      {toast && <div className={`toast ${toast.type}`}>{toast.message}</div>}
+
       <section className="explorer-window">
         <header className="window-titlebar">
-          <div>
-            <p className="eyebrow">MIA Proyecto Fase 2</p>
-            <h1>Explorador EXT2</h1>
+          <div className="brand-block">
+            <span className="brand-icon">✦</span>
+            <div>
+              <h1>Explorador EXT2</h1>
+              <p className="eyebrow">MIA Proyecto Fase 2</p>
+            </div>
           </div>
+
           <div className="session-summary">
-            <span>{loadingSession ? 'Consultando sesion...' : 'Usuario conectado'}</span>
-            <strong>
-              {session.logged
-                ? `${session.user} | ${session.group} | ${session.partitionID}`
-                : 'Sin sesion'}
-            </strong>
+            <span>{loadingSession ? 'Consultando sesion...' : 'Estado de sesion'}</span>
+            <strong>{session.logged ? `${session.user} conectado` : 'Sesion inactiva'}</strong>
+            {session.logged && (
+              <button type="button" onClick={submitLogout} disabled={submittingLogin}>
+                {submittingLogin ? 'Cerrando...' : 'Cerrar sesion'}
+              </button>
+            )}
           </div>
         </header>
 
         <div className="window-body">
-          <aside className="sidebar">
-            <section className="sidebar-section">
-              <div className="sidebar-heading">
-                <h2>Montajes</h2>
+          <aside className="sidebar app-sidebar">
+            <nav className="side-nav" aria-label="Navegacion principal">
+              <button
+                type="button"
+                className={activeUtilityTab === 'home' ? 'side-link active' : 'side-link'}
+                onClick={() => setActiveUtilityTab('home')}
+              >
+                <span>⌂</span> Inicio
+              </button>
+
+              <div className="side-group">
+                <span>Gestion</span>
                 <button
-                  className="icon-button"
                   type="button"
-                  onClick={fetchMounts}
-                  title="Actualizar montajes"
+                  className={activeUtilityTab === 'disks' ? 'side-link active' : 'side-link'}
+                  onClick={() => setActiveUtilityTab('disks')}
                 >
-                  ↻
+                  <span>◉</span> Discos
+                </button>
+                <button
+                  type="button"
+                  className={activeUtilityTab === 'partitions' ? 'side-link active' : 'side-link'}
+                  onClick={() => setActiveUtilityTab('partitions')}
+                >
+                  <span>▰</span> Particiones
+                </button>
+                <button
+                  type="button"
+                  className={activeUtilityTab === 'users' ? 'side-link active' : 'side-link'}
+                  onClick={() => setActiveUtilityTab('users')}
+                >
+                  <span>◌</span> Usuarios
                 </button>
               </div>
 
-              {mountsError && <div className="inline-error">{mountsError}</div>}
-
-              <div className="mount-list">
-                {mounts.length === 0 && !mountsError && (
-                  <div className="empty-state compact">
-                    {loadingMounts ? 'Cargando montajes...' : 'No hay particiones montadas.'}
-                  </div>
-                )}
-
-                {mounts.map((mount) => (
-                  <button
-                    type="button"
-                    key={mount.id}
-                    className={mount.id === selectedMountId ? 'mount-item active' : 'mount-item'}
-                    onClick={() => selectMount(mount.id)}
-                  >
-                    <span className="drive-icon">▣</span>
-                    <span className="mount-name">Disco {mount.id}</span>
-                    <span className="mount-path">{mount.name || mount.path}</span>
-                  </button>
-                ))}
-              </div>
-            </section>
-
-            <section className="sidebar-section login-section">
-              <div className="sidebar-heading">
-                <h2>Login</h2>
-                {loadingSession && <span className="mini-status">...</span>}
+              <div className="side-group">
+                <span>Explorador</span>
+                <button
+                  type="button"
+                  className={activeUtilityTab === 'explorer' ? 'side-link active' : 'side-link'}
+                  onClick={() => setActiveUtilityTab('explorer')}
+                >
+                  <span>▣</span> Explorador
+                </button>
+                <button
+                  type="button"
+                  className={activeUtilityTab === 'files' ? 'side-link active' : 'side-link'}
+                  onClick={() => setActiveUtilityTab('files')}
+                >
+                  <span>◇</span> Archivos
+                </button>
               </div>
 
-              {sessionError && <div className="inline-error">{sessionError}</div>}
+              <div className="side-group">
+                <span>Herramientas</span>
+                <button
+                  type="button"
+                  className={activeUtilityTab === 'reports' ? 'side-link active' : 'side-link'}
+                  onClick={() => setActiveUtilityTab('reports')}
+                >
+                  <span>▤</span> Reportes
+                </button>
+                <button
+                  type="button"
+                  className={activeUtilityTab === 'console' ? 'side-link active' : 'side-link'}
+                  onClick={() => setActiveUtilityTab('console')}
+                >
+                  <span>⌘</span> Consola avanzada
+                </button>
+              </div>
+            </nav>
 
-              {session.logged ? (
-                <div className="session-card">
-                  <span className="session-label">Conectado como</span>
-                  <strong>{session.user}</strong>
-                  <span>{session.group} | {session.partitionID}</span>
-                  <button type="button" onClick={submitLogout} disabled={submittingLogin}>
-                    {submittingLogin ? 'Cerrando...' : 'Logout'}
-                  </button>
+            <section className="system-card">
+              <h2>Estado</h2>
+              <dl>
+                <div>
+                  <dt>Sistema de archivos</dt>
+                  <dd>EXT2</dd>
                 </div>
-              ) : (
-                <form className="login-form" onSubmit={submitLogin}>
-                  <label>
-                    <span>ID particion</span>
-                    <input
-                      value={loginPartitionId}
-                      onChange={(event) => setLoginPartitionId(event.target.value)}
-                      placeholder="631A"
-                    />
-                  </label>
-                  <label>
-                    <span>Usuario</span>
-                    <input
-                      value={loginUser}
-                      onChange={(event) => setLoginUser(event.target.value)}
-                      placeholder="root"
-                    />
-                  </label>
-                  <label>
-                    <span>Contrasena</span>
-                    <input
-                      type="password"
-                      value={loginPassword}
-                      onChange={(event) => setLoginPassword(event.target.value)}
-                      placeholder="123"
-                    />
-                  </label>
-                  <button type="submit" disabled={submittingLogin}>
-                    {submittingLogin ? 'Ingresando...' : 'Login'}
-                  </button>
-                </form>
-              )}
-
-              {(loginMessage || loginError) && (
-                <pre className={loginError ? 'result-box error-box' : 'result-box'}>
-                  {loginError || loginMessage}
-                </pre>
-              )}
+                <div>
+                  <dt>Estado</dt>
+                  <dd>{mounts.length > 0 ? 'Activo' : 'Inactivo'}</dd>
+                </div>
+                <div>
+                  <dt>Sesion</dt>
+                  <dd>{session.logged ? 'Activa' : 'Inactiva'}</dd>
+                </div>
+                <div>
+                  <dt>Montajes activos</dt>
+                  <dd>{mounts.length}</dd>
+                </div>
+              </dl>
             </section>
           </aside>
 
           <section className="content-column">
-            <section className="explorer-panel">
-              <div className="command-bar">
-                <button
-                  className="icon-button"
-                  type="button"
-                  disabled={!selectedMountId || pathHistory.length === 0}
-                  onClick={goBack}
-                  title="Atras"
-                >
-                  ←
-                </button>
-                <button
-                  className="icon-button"
-                  type="button"
-                  disabled={!selectedMountId || currentPath === '/'}
-                  onClick={() => navigateTo(parentPath(currentPath))}
-                  title="Subir carpeta"
-                >
-                  ↑
-                </button>
-                <button
-                  className="icon-button"
-                  type="button"
-                  disabled={!selectedMountId}
-                  onClick={() => loadTree(selectedMountId, currentPath)}
-                  title="Actualizar"
-                >
-                  ↻
-                </button>
+            {activeUtilityTab === 'home' && (
+              <section className="tab-content home-panel">
+                <div className="home-hero">
+                  <span>Panel visual EXT2</span>
+                  <h2>Administra discos, particiones, archivos y reportes desde una interfaz guiada.</h2>
+                  <p>
+                    Elige una accion rapida o navega por el sidebar. Las operaciones usan el backend
+                    existente y refrescan montajes, sesion y explorador cuando corresponde.
+                  </p>
+                </div>
 
-                <nav className="breadcrumbs" aria-label="Ruta actual">
-                  {breadcrumbs.map((crumb, index) => (
-                    <span className="breadcrumb-item" key={`${crumb.label}-${index}`}>
-                      {crumb.path ? (
+                <div className="quick-grid">
+                  {[
+                    ['◉', 'Crear disco', 'disks'],
+                    ['▰', 'Crear particion', 'partitions'],
+                    ['▣', 'Montar particion', 'partitions'],
+                    ['⌂', 'Crear carpeta', 'files'],
+                    ['◇', 'Crear archivo', 'files'],
+                    ['▤', 'Generar reporte', 'reports'],
+                  ].map(([icon, title, target]) => (
+                    <button
+                      type="button"
+                      className="quick-card"
+                      key={title}
+                      onClick={() => setActiveUtilityTab(target)}
+                    >
+                      <span>{icon}</span>
+                      <strong>{title}</strong>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {activeUtilityTab === 'disks' && (
+              <section className="tab-content page-section">
+                <div className="page-heading">
+                  <span>Gestion</span>
+                  <h2>Discos</h2>
+                </div>
+                {renderDisksTab()}
+              </section>
+            )}
+
+            {activeUtilityTab === 'partitions' && (
+              <section className="tab-content page-section">
+                <div className="page-heading">
+                  <span>Gestion</span>
+                  <h2>Particiones</h2>
+                </div>
+                {renderPartitionsTab()}
+              </section>
+            )}
+
+            {activeUtilityTab === 'users' && (
+              <section className="tab-content page-section">
+                <div className="page-heading">
+                  <span>Gestion</span>
+                  <h2>Usuarios</h2>
+                </div>
+                {renderUsersTab()}
+              </section>
+            )}
+
+            {activeUtilityTab === 'explorer' && (
+              <section className="explorer-panel page-section">
+                <div className="page-heading">
+                  <span>Explorador</span>
+                  <h2>{selectedMount ? `Unidad ${selectedMount.id}` : 'Selecciona una unidad'}</h2>
+                </div>
+
+                <div className="explorer-layout">
+                  <aside className="drive-sidebar">
+                    <div className="sidebar-heading">
+                      <h2>Unidades</h2>
+                      <button className="icon-button" type="button" onClick={fetchMounts} title="Actualizar">
+                        ↻
+                      </button>
+                    </div>
+                    {mountsError && <div className="inline-error">{mountsError}</div>}
+                    <div className="mount-list">
+                      {mounts.length === 0 && !mountsError && (
+                        <div className="empty-state compact">
+                          {loadingMounts ? 'Cargando montajes...' : 'No hay particiones montadas.'}
+                        </div>
+                      )}
+                      {mounts.map((mount) => (
                         <button
                           type="button"
-                          onClick={() => navigateTo(crumb.path)}
-                          disabled={!selectedMountId || crumb.path === currentPath}
+                          key={mount.id}
+                          className={mount.id === selectedMountId ? 'mount-item active' : 'mount-item'}
+                          onClick={() => selectMount(mount.id)}
                         >
-                          {crumb.label}
+                          <span className="drive-icon">▣</span>
+                          <span className="mount-name">Disco {mount.id}</span>
+                          <span className="mount-path">{mount.name || mount.path}</span>
                         </button>
-                      ) : (
-                        <span>{crumb.label}</span>
-                      )}
-                      {index < breadcrumbs.length - 1 && <span className="breadcrumb-separator">&gt;</span>}
-                    </span>
-                  ))}
-                </nav>
-              </div>
-
-              {treeError && <div className="inline-error">{treeError}</div>}
-
-              <div className="explorer-grid">
-                <div className="file-table-wrap">
-                  <table className="file-table">
-                    <thead>
-                      <tr>
-                        <th>Nombre</th>
-                        <th>Tipo</th>
-                        <th>Inodo</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {loadingTree && (
-                        <tr>
-                          <td colSpan="3" className="table-state">Cargando carpeta...</td>
-                        </tr>
-                      )}
-
-                      {!loadingTree && items.length === 0 && !treeError && (
-                        <tr>
-                          <td colSpan="3" className="table-state">La carpeta esta vacia.</td>
-                        </tr>
-                      )}
-
-                      {!loadingTree &&
-                        items.map((item) => (
-                          <tr
-                            key={`${item.inode}-${item.name}`}
-                            className="file-row"
-                            onClick={() => handleItemClick(item)}
-                          >
-                            <td>
-                              <span className="file-name">
-                                <span className="file-icon" aria-hidden="true">
-                                  {item.type === 'folder' ? '📁' : '📄'}
-                                </span>
-                                {item.name}
-                              </span>
-                            </td>
-                            <td>{item.type === 'folder' ? 'Carpeta' : 'Archivo'}</td>
-                            <td>{item.inode}</td>
-                          </tr>
-                        ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                <aside className="file-preview">
-                  <div className="preview-heading">
-                    <h2>Vista previa</h2>
-                    <span>{loadingFile ? 'Leyendo...' : selectedFilePath || 'Sin archivo'}</span>
-                  </div>
-
-                  {fileError && <div className="inline-error">{fileError}</div>}
-
-                  <pre className="content-box">
-                    {fileContent || 'Selecciona un archivo para ver su contenido.'}
-                  </pre>
-                </aside>
-              </div>
-            </section>
-
-            <section className="utility-panel">
-              <div className="tab-bar">
-                <button
-                  type="button"
-                  className={activeUtilityTab === 'disks' ? 'tab-button active' : 'tab-button'}
-                  onClick={() => setActiveUtilityTab('disks')}
-                >
-                  Discos
-                </button>
-                <button
-                  type="button"
-                  className={activeUtilityTab === 'partitions' ? 'tab-button active' : 'tab-button'}
-                  onClick={() => setActiveUtilityTab('partitions')}
-                >
-                  Particiones
-                </button>
-                <button
-                  type="button"
-                  className={activeUtilityTab === 'files' ? 'tab-button active' : 'tab-button'}
-                  onClick={() => setActiveUtilityTab('files')}
-                >
-                  Archivos
-                </button>
-                <button
-                  type="button"
-                  className={activeUtilityTab === 'console' ? 'tab-button active' : 'tab-button'}
-                  onClick={() => setActiveUtilityTab('console')}
-                >
-                  Consola
-                </button>
-                <button
-                  type="button"
-                  className={activeUtilityTab === 'reports' ? 'tab-button active' : 'tab-button'}
-                  onClick={() => setActiveUtilityTab('reports')}
-                >
-                  Reportes
-                </button>
-              </div>
-
-              {activeUtilityTab === 'disks' && (
-                <div className="tab-content">{renderDisksTab()}</div>
-              )}
-
-              {activeUtilityTab === 'partitions' && (
-                <div className="tab-content">{renderPartitionsTab()}</div>
-              )}
-
-              {activeUtilityTab === 'files' && (
-                <div className="tab-content">{renderFilesTab()}</div>
-              )}
-
-              {activeUtilityTab === 'console' && (
-                <div className="tab-content console-tab">
-                  <textarea
-                    value={command}
-                    onChange={(event) => setCommand(event.target.value)}
-                    spellCheck="false"
-                    className="command-input"
-                  />
-
-                  <div className="actions-row">
-                    <button type="button" onClick={executeCommand} disabled={runningCommand}>
-                      {runningCommand ? 'Ejecutando...' : 'Ejecutar'}
-                    </button>
-                  </div>
-
-                  {(commandResult || commandError) && (
-                    <pre className={commandError ? 'result-box error-box' : 'result-box'}>
-                      {commandError || commandResult}
-                    </pre>
-                  )}
-                </div>
-              )}
-
-              {activeUtilityTab === 'reports' && (
-                <div className="tab-content">
-                  <form className="reports-form" onSubmit={generateReport}>
-                    <label>
-                      <span>Reporte</span>
-                      <select value={reportName} onChange={(event) => setReportName(event.target.value)}>
-                        {reportOptions.map((option) => (
-                          <option key={option.name} value={option.name}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-
-                    <label>
-                      <span>ID particion</span>
-                      <select
-                        value={reportMountId}
-                        onChange={(event) => setReportMountId(event.target.value)}
-                      >
-                        <option value="">Selecciona un montaje</option>
-                        {mounts.map((mount) => (
-                          <option key={mount.id} value={mount.id}>
-                            {mount.id} - {mount.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-
-                    <button type="submit" disabled={generatingReport || !reportMountId}>
-                      {generatingReport ? 'Generando...' : 'Generar'}
-                    </button>
-                  </form>
-
-                  {(reportMessage || reportError) && (
-                    <pre className={reportError ? 'result-box error-box' : 'result-box'}>
-                      {reportError || reportMessage}
-                    </pre>
-                  )}
-
-                  {reportPreview && (
-                    <div className="report-preview">
-                      <div className="preview-heading">
-                        <h2>Vista previa</h2>
-                        <span>{reportPreview.path}</span>
-                      </div>
-
-                      {reportPreview.type === 'image' ? (
-                        <div className="report-image-frame">
-                          <img src={reportPreview.url} alt="Reporte generado" />
-                        </div>
-                      ) : (
-                        <pre className="content-box report-text">{reportPreview.content}</pre>
-                      )}
+                      ))}
                     </div>
-                  )}
+                  </aside>
+
+                  <div className="browser-main">
+                    <div className="command-bar">
+                      <button
+                        className="icon-button"
+                        type="button"
+                        disabled={!selectedMountId || pathHistory.length === 0}
+                        onClick={goBack}
+                        title="Atras"
+                      >
+                        ←
+                      </button>
+                      <button
+                        className="icon-button"
+                        type="button"
+                        disabled={!selectedMountId || currentPath === '/'}
+                        onClick={() => navigateTo(parentPath(currentPath))}
+                        title="Subir"
+                      >
+                        ↑
+                      </button>
+                      <button
+                        className="icon-button"
+                        type="button"
+                        disabled={!selectedMountId}
+                        onClick={() => loadTree(selectedMountId, currentPath)}
+                        title="Actualizar"
+                      >
+                        ↻
+                      </button>
+                      <button type="button" onClick={() => setActiveUtilityTab('files')}>Nueva carpeta</button>
+                      <button type="button" onClick={() => setActiveUtilityTab('files')}>Nuevo archivo</button>
+
+                      <nav className="breadcrumbs" aria-label="Ruta actual">
+                        {breadcrumbs.map((crumb, index) => (
+                          <span className="breadcrumb-item" key={`${crumb.label}-${index}`}>
+                            {crumb.path ? (
+                              <button
+                                type="button"
+                                onClick={() => navigateTo(crumb.path)}
+                                disabled={!selectedMountId || crumb.path === currentPath}
+                              >
+                                {crumb.label}
+                              </button>
+                            ) : (
+                              <span>Inicio</span>
+                            )}
+                            {index < breadcrumbs.length - 1 && (
+                              <span className="breadcrumb-separator">&gt;</span>
+                            )}
+                          </span>
+                        ))}
+                      </nav>
+                    </div>
+
+                    {!selectedMountId ? (
+                      <div className="empty-state explorer-empty">
+                        Selecciona una particion montada para explorar.
+                      </div>
+                    ) : (
+                      <>
+                        {treeError && <div className="inline-error">{treeError}</div>}
+                        <div className="explorer-grid">
+                          <div className="file-table-wrap">
+                            <table className="file-table">
+                              <thead>
+                                <tr>
+                                  <th>Nombre</th>
+                                  <th>Tipo</th>
+                                  <th>Inodo</th>
+                                  <th>Acciones</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {loadingTree && (
+                                  <tr>
+                                    <td colSpan="4" className="table-state">Cargando carpeta...</td>
+                                  </tr>
+                                )}
+                                {!loadingTree && items.length === 0 && !treeError && (
+                                  <tr>
+                                    <td colSpan="4" className="table-state">La carpeta esta vacia.</td>
+                                  </tr>
+                                )}
+                                {!loadingTree &&
+                                  items.map((item) => (
+                                    <tr
+                                      key={`${item.inode}-${item.name}`}
+                                      className="file-row"
+                                      onClick={() => handleItemClick(item)}
+                                    >
+                                      <td>
+                                        <span className="file-name">
+                                          <span className="file-icon" aria-hidden="true">
+                                            {item.type === 'folder' ? '📁' : '📄'}
+                                          </span>
+                                          {item.name}
+                                        </span>
+                                      </td>
+                                      <td>{item.type === 'folder' ? 'Carpeta' : 'Archivo'}</td>
+                                      <td>{item.inode}</td>
+                                      <td>
+                                        <button
+                                          type="button"
+                                          className="table-action"
+                                          onClick={(event) => {
+                                            event.stopPropagation()
+                                            handleItemClick(item)
+                                          }}
+                                        >
+                                          {item.type === 'folder' ? 'Abrir' : 'Ver'}
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  ))}
+                              </tbody>
+                            </table>
+                          </div>
+
+                          <aside className="file-preview">
+                            <div className="preview-heading">
+                              <h2>Vista previa</h2>
+                              <span>{loadingFile ? 'Leyendo...' : selectedFilePath || 'Sin archivo'}</span>
+                            </div>
+                            {fileError && <div className="inline-error">{fileError}</div>}
+                            <pre className="content-box">
+                              {fileContent || 'Selecciona un archivo para ver su contenido.'}
+                            </pre>
+                          </aside>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
-              )}
-            </section>
+              </section>
+            )}
+
+            {activeUtilityTab === 'files' && (
+              <section className="tab-content page-section">
+                <div className="page-heading">
+                  <span>Explorador</span>
+                  <h2>Archivos</h2>
+                </div>
+                {renderFilesTab()}
+              </section>
+            )}
+
+            {activeUtilityTab === 'reports' && (
+              <section className="tab-content page-section">
+                <div className="page-heading">
+                  <span>Herramientas</span>
+                  <h2>Reportes</h2>
+                </div>
+                <form className="reports-form" onSubmit={generateReport}>
+                  <label>
+                    <span>Reporte</span>
+                    <select value={reportName} onChange={(event) => setReportName(event.target.value)}>
+                      {reportOptions.map((option) => (
+                        <option key={option.name} value={option.name}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    <span>ID particion</span>
+                    <select value={reportMountId} onChange={(event) => setReportMountId(event.target.value)}>
+                      <option value="">Selecciona un montaje</option>
+                      {mounts.map((mount) => (
+                        <option key={mount.id} value={mount.id}>
+                          {mount.id} - {mount.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button type="submit" disabled={generatingReport || !reportMountId}>
+                    {generatingReport ? 'Generando...' : 'Generar reporte'}
+                  </button>
+                </form>
+
+                {(reportMessage || reportError) && (
+                  <div className={reportError ? 'message-box error-box' : 'message-box success-box'}>
+                    {reportError || reportMessage}
+                  </div>
+                )}
+
+                {reportPreview && (
+                  <div className="report-preview">
+                    <div className="preview-heading">
+                      <h2>Vista previa</h2>
+                      <span>{reportPreview.name}</span>
+                    </div>
+                    {reportPreview.type === 'image' ? (
+                      <div className="report-image-frame">
+                        <img src={reportPreview.url} alt="Reporte generado" />
+                      </div>
+                    ) : (
+                      <pre className="content-box report-text">{reportPreview.content}</pre>
+                    )}
+                  </div>
+                )}
+              </section>
+            )}
+
+            {activeUtilityTab === 'console' && (
+              <section className="tab-content page-section console-tab">
+                <div className="page-heading">
+                  <span>Herramientas</span>
+                  <h2>Consola avanzada</h2>
+                  <p>Uso avanzado: ejecutar comandos manualmente.</p>
+                </div>
+                <textarea
+                  value={command}
+                  onChange={(event) => setCommand(event.target.value)}
+                  spellCheck="false"
+                  className="command-input"
+                />
+                <div className="actions-row">
+                  <button type="button" onClick={executeCommand} disabled={runningCommand}>
+                    {runningCommand ? 'Ejecutando...' : 'Ejecutar'}
+                  </button>
+                </div>
+                {(commandResult || commandError) && (
+                  <pre className={commandError ? 'result-box error-box' : 'result-box'}>
+                    {commandError || commandResult}
+                  </pre>
+                )}
+              </section>
+            )}
           </section>
         </div>
       </section>

@@ -10,7 +10,7 @@ import (
 
 func main() { // aqui empieza la ejecucion del programa
 	if len(os.Args) > 1 && (os.Args[1] == "api" || os.Args[1] == "--api") {
-		fmt.Println("API escuchando en http://localhost:8080")
+		fmt.Println("API escuchando en el puerto 8080")
 		if err := api.StartAPI(); err != nil {
 			fmt.Println("Error iniciando API:", err)
 		}
