@@ -1,0 +1,40 @@
+digraph G {
+node [shape=plaintext];
+block0 [label=<
+<table border='1' cellborder='1' cellspacing='0'>
+<tr><td colspan='2'><b>BLOQUE CARPETA 0</b></td></tr>
+<tr><td>.</td><td>0</td></tr>
+<tr><td>..</td><td>0</td></tr>
+<tr><td>users.txt</td><td>1</td></tr>
+<tr><td>home</td><td>2</td></tr>
+</table>>];
+block1 [label=<
+<table border='1' cellborder='1' cellspacing='0'>
+<tr><td><b>BLOQUE ARCHIVO 1</b></td></tr>
+<tr><td>1,G,root
+1,U,root,root,123
+2,U,root,prueba,prueba
+2,U,prueba,pru</td></tr>
+</table>>];
+block2 [label=<
+<table border='1' cellborder='1' cellspacing='0'>
+<tr><td colspan='2'><b>BLOQUE CARPETA 2</b></td></tr>
+<tr><td>.</td><td>2</td></tr>
+<tr><td>..</td><td>0</td></tr>
+<tr><td>docs</td><td>3</td></tr>
+<tr><td></td><td>-1</td></tr>
+</table>>];
+block3 [label=<
+<table border='1' cellborder='1' cellspacing='0'>
+<tr><td colspan='2'><b>BLOQUE CARPETA 3</b></td></tr>
+<tr><td>.</td><td>3</td></tr>
+<tr><td>..</td><td>2</td></tr>
+<tr><td>archivo.txt</td><td>4</td></tr>
+<tr><td></td><td>-1</td></tr>
+</table>>];
+block4 [label=<
+<table border='1' cellborder='1' cellspacing='0'>
+<tr><td><b>BLOQUE ARCHIVO 4</b></td></tr>
+<tr><td>0123456789012345678901234567890123456789012345678901234567890123</td></tr>
+</table>>];
+}

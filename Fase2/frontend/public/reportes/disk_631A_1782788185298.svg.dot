@@ -3,7 +3,7 @@ node [shape=plaintext];
 disk [label=<
 <table border='1' cellborder='1' cellspacing='0'><tr>
 <td>MBR<br/>0.00%</td>
-<td>part1<br/>P<br/>50.00%</td>
-<td>Libre<br/>50.00%</td>
+<td>part1<br/>P<br/>10.00%</td>
+<td>Libre<br/>90.00%</td>
 </tr></table>>];
 }
